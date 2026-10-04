@@ -1,0 +1,115 @@
+name: Build APK
+run-name: build-${{ inputs.build_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      url: { required: true, type: string }
+      app_name: { required: true, type: string }
+      package_id: { required: true, type: string }
+      build_id: { required: true, type: string }
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.7" }
+      - name: Generate project
+        env:
+          APP_URL: ${{ inputs.url }}
+          APP_NAME: ${{ inputs.app_name }}
+          APP_PKG: ${{ inputs.package_id }}
+        run: |
+          mkdir proj && cd proj
+          cat > gen.py <<'PY'
+          
+          import os, json
+          from xml.sax.saxutils import escape
+          url = os.environ["APP_URL"]; name = os.environ["APP_NAME"]; pkg = os.environ["APP_PKG"]
+          def w(p, s):
+              os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+              open(p, "w").write(s)
+          w("settings.gradle", """pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = 'app'
+          include ':app'
+          """)
+          w("build.gradle", "plugins { id 'com.android.application' version '8.5.2' apply false }\n")
+          w("gradle.properties", "android.useAndroidX=true\norg.gradle.jvmargs=-Xmx2g\n")
+          w("app/build.gradle", """plugins { id 'com.android.application' }
+          android {
+            namespace '%s'
+            compileSdk 34
+            defaultConfig { applicationId '%s'; minSdk 21; targetSdk 34; versionCode 1; versionName '1.0' }
+            compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+          }
+          """ % (pkg, pkg))
+          w("app/src/main/res/values/strings.xml", '<resources><string name="app_name">%s</string></resources>\n' % escape(name).replace("'", "\\'"))
+          w("app/src/main/AndroidManifest.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET"/>
+            <application android:label="@string/app_name" android:usesCleartextTraffic="true"
+                android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+              <activity android:name=".MainActivity" android:exported="true"
+                  android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          """)
+          w("app/src/main/java/" + pkg.replace(".", "/") + "/MainActivity.java", """package %s;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.view.View;
+          import android.view.WindowManager;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          public class MainActivity extends Activity {
+            private WebView web;
+            @Override protected void onCreate(Bundle b) {
+              super.onCreate(b);
+              getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+              web = new WebView(this);
+              WebSettings s = web.getSettings();
+              s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setDatabaseEnabled(true);
+              s.setLoadWithOverviewMode(true); s.setUseWideViewPort(true); s.setMediaPlaybackRequiresUserGesture(false);
+              web.setWebViewClient(new WebViewClient());
+              web.setWebChromeClient(new WebChromeClient());
+              setContentView(web);
+              hide();
+              if (b == null) web.loadUrl(%s); else web.restoreState(b);
+            }
+            private void hide() {
+              getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+            }
+            @Override public void onWindowFocusChanged(boolean f) { super.onWindowFocusChanged(f); if (f) hide(); }
+            @Override protected void onSaveInstanceState(Bundle o) { super.onSaveInstanceState(o); web.saveState(o); }
+            @Override public void onBackPressed() { if (web.canGoBack()) web.goBack(); else super.onBackPressed(); }
+          }
+          """ % (pkg, json.dumps(url)))
+          
+          PY
+          python3 gen.py
+      - name: Build
+        working-directory: proj
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          gradle assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../app.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.build_id }}
+          name: ${{ inputs.app_name }}
+          body: ${{ inputs.url }}
+          files: app.apk
