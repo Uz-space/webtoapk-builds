@@ -7,6 +7,7 @@ on:
       app_name: { required: true, type: string }
       package_id: { required: true, type: string }
       build_id: { required: true, type: string }
+      icon_path: { required: false, type: string }
 permissions:
   contents: write
 jobs:
@@ -22,12 +23,20 @@ jobs:
           APP_URL: ${{ inputs.url }}
           APP_NAME: ${{ inputs.app_name }}
           APP_PKG: ${{ inputs.package_id }}
+          ICON_PATH: ${{ inputs.icon_path }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir proj && cd proj
+          if [ -n "$ICON_PATH" ]; then
+            curl -L --fail               -H "Accept: application/vnd.github.raw+json"               -H "Authorization: Bearer $GH_TOKEN"               -H "X-GitHub-Api-Version: 2022-11-28"               "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/$ICON_PATH"               -o app-icon.png
+            export APP_ICON="$PWD/app-icon.png"
+            python3 -m pip install --quiet Pillow
+          fi
           cat > gen.py <<'PY'
           
           import os, json
           from xml.sax.saxutils import escape
+          from PIL import Image
           url = os.environ["APP_URL"]; name = os.environ["APP_NAME"]; pkg = os.environ["APP_PKG"]
           def w(p, s):
               os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
@@ -48,10 +57,19 @@ jobs:
           }
           """ % (pkg, pkg))
           w("app/src/main/res/values/strings.xml", '<resources><string name="app_name">%s</string></resources>\n' % escape(name).replace("'", "\\'"))
+          icon_source = os.environ.get("APP_ICON")
+          if icon_source and os.path.exists(icon_source):
+              sizes = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
+              with Image.open(icon_source) as source:
+                  source = source.convert("RGBA")
+                  for density, size in sizes.items():
+                      folder = "app/src/main/res/mipmap-" + density
+                      os.makedirs(folder, exist_ok=True)
+                      source.resize((size, size), Image.Resampling.LANCZOS).save(folder + "/ic_launcher.png")
           w("app/src/main/AndroidManifest.xml", """<?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
             <uses-permission android:name="android.permission.INTERNET"/>
-            <application android:label="@string/app_name" android:usesCleartextTraffic="true"
+            <application android:label="@string/app_name"%s android:usesCleartextTraffic="true"
                 android:theme="@android:style/Theme.Material.Light.NoActionBar">
               <activity android:name=".MainActivity" android:exported="true"
                   android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode">
@@ -62,7 +80,7 @@ jobs:
               </activity>
             </application>
           </manifest>
-          """)
+          """ % (' android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"' if icon_source else ''))
           w("app/src/main/java/" + pkg.replace(".", "/") + "/MainActivity.java", """package %s;
           import android.app.Activity;
           import android.os.Bundle;
