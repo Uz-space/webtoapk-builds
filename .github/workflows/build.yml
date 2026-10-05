@@ -9,6 +9,7 @@ on:
       build_id: { required: true, type: string }
       icon_path: { required: false, type: string }
       html_path: { required: false, type: string }
+      full_perms: { required: false, type: string }
 permissions:
   contents: write
 jobs:
@@ -26,6 +27,7 @@ jobs:
           APP_PKG: ${{ inputs.package_id }}
           ICON_PATH: ${{ inputs.icon_path }}
           HTML_PATH: ${{ inputs.html_path }}
+          APP_PERMS: ${{ inputs.full_perms }}
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir proj && cd proj
@@ -89,10 +91,29 @@ jobs:
                       folder = "app/src/main/res/mipmap-" + density
                       os.makedirs(folder, exist_ok=True)
                       source.resize((size, size), Image.Resampling.LANCZOS).save(folder + "/ic_launcher.png")
+          EXTRA_PERMS = """CAMERA RECORD_AUDIO ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION ACCESS_BACKGROUND_LOCATION
+          READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE READ_MEDIA_IMAGES READ_MEDIA_VIDEO READ_MEDIA_AUDIO
+          POST_NOTIFICATIONS VIBRATE WAKE_LOCK FLASHLIGHT
+          READ_CONTACTS WRITE_CONTACTS GET_ACCOUNTS READ_CALENDAR WRITE_CALENDAR
+          CALL_PHONE READ_PHONE_STATE READ_PHONE_NUMBERS READ_CALL_LOG ANSWER_PHONE_CALLS
+          SEND_SMS READ_SMS RECEIVE_SMS
+          BODY_SENSORS ACTIVITY_RECOGNITION HIGH_SAMPLING_RATE_SENSORS
+          BLUETOOTH BLUETOOTH_ADMIN BLUETOOTH_CONNECT BLUETOOTH_SCAN NFC
+          ACCESS_NETWORK_STATE ACCESS_WIFI_STATE CHANGE_WIFI_STATE INTERNET
+          MODIFY_AUDIO_SETTINGS RECEIVE_BOOT_COMPLETED FOREGROUND_SERVICE REQUEST_INSTALL_PACKAGES""".split()
+          perm_lines = ""
+          if os.environ.get("APP_PERMS"):
+              seen = []
+              for p in EXTRA_PERMS:
+                  if p not in seen and p != "INTERNET":
+                      seen.append(p)
+              perm_lines = "".join('  <uses-permission android:name="android.permission.%s" tools:ignore="ScopedStorage"/>\n' % p for p in seen)
+              perm_lines += '  <uses-feature android:name="android.hardware.camera" android:required="false"/>\n'
           w("app/src/main/AndroidManifest.xml", """<?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:tools="http://schemas.android.com/tools">
             <uses-permission android:name="android.permission.INTERNET"/>
-            <application android:label="@string/app_name"%s android:usesCleartextTraffic="true"
+          %s  <application android:label="@string/app_name"%s android:usesCleartextTraffic="true"
                 android:theme="@style/AppTheme">
               <activity android:name=".MainActivity" android:exported="true"
                   android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode">
@@ -103,7 +124,7 @@ jobs:
               </activity>
             </application>
           </manifest>
-          """ % (' android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"' if icon_source else ''))
+          """ % (perm_lines, ' android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"' if icon_source else ''))
           w("app/src/main/java/" + pkg.replace(".", "/") + "/MainActivity.java", """package %s;
           import android.app.Activity;
           import android.graphics.Color;
@@ -116,6 +137,26 @@ jobs:
           import android.view.ViewGroup;
           import android.view.WindowManager;
           import android.webkit.WebChromeClient;
+          import android.webkit.PermissionRequest;
+          import android.webkit.GeolocationPermissions;
+          import android.webkit.ValueCallback;
+          import android.webkit.JavascriptInterface;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.database.Cursor;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Vibrator;
+          import android.hardware.camera2.CameraManager;
+          import android.provider.CalendarContract;
+          import android.provider.CallLog;
+          import android.provider.ContactsContract;
+          import android.provider.Settings;
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.widget.Toast;
+          import org.json.JSONObject;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
@@ -127,6 +168,86 @@ jobs:
           import android.widget.ProgressBar;
           import android.widget.TextView;
           public class MainActivity extends Activity {
+            private ValueCallback<Uri[]> fileCb;
+            private void js(final String code) {
+              runOnUiThread(new Runnable() { @Override public void run() { if (web != null) web.evaluateJavascript(code, null); } });
+            }
+            @Override protected void onActivityResult(int req, int res, Intent data) {
+              super.onActivityResult(req, res, data);
+              if (req == 77 && fileCb != null) {
+                fileCb.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data));
+                fileCb = null;
+              }
+            }
+            @Override public void onRequestPermissionsResult(int req, String[] perms, int[] results) {
+              super.onRequestPermissionsResult(req, perms, results);
+              for (int i = 0; i < perms.length; i++) {
+                js("window.onAndroidPerm&&window.onAndroidPerm(" + JSONObject.quote(perms[i]) + "," + (results[i] == PackageManager.PERMISSION_GRANTED) + ")");
+              }
+            }
+            // Native bridge used by the "Android ruxsatlari" template; harmless elsewhere.
+            class PermBridge {
+              @JavascriptInterface public int sdk() { return Build.VERSION.SDK_INT; }
+              @JavascriptInterface public String device() { return Build.MANUFACTURER + " " + Build.MODEL + " (Android " + Build.VERSION.RELEASE + ")"; }
+              @JavascriptInterface public boolean has(String p) {
+                if (Build.VERSION.SDK_INT < 23) return true;
+                return checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED;
+              }
+              @JavascriptInterface public void request(final String p) {
+                if (Build.VERSION.SDK_INT < 23) { js("window.onAndroidPerm&&window.onAndroidPerm(" + JSONObject.quote(p) + ",true)"); return; }
+                runOnUiThread(new Runnable() { @Override public void run() { requestPermissions(new String[]{p}, 5); } });
+              }
+              @JavascriptInterface public void vibrate(int ms) {
+                try { Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE); if (v != null) v.vibrate(ms); } catch (Exception ignored) {}
+              }
+              @JavascriptInterface public void toast(final String t) {
+                runOnUiThread(new Runnable() { @Override public void run() { Toast.makeText(MainActivity.this, t, Toast.LENGTH_SHORT).show(); } });
+              }
+              @JavascriptInterface public String torch(boolean on) {
+                try {
+                  if (Build.VERSION.SDK_INT < 23) return "Android 6+ kerak";
+                  CameraManager cm = (CameraManager) getSystemService(CAMERA_SERVICE);
+                  cm.setTorchMode(cm.getCameraIdList()[0], on);
+                  return "ok";
+                } catch (Exception e) { return e.getMessage(); }
+              }
+              @JavascriptInterface public String count(String kind) {
+                try {
+                  Uri u = kind.equals("contacts") ? ContactsContract.Contacts.CONTENT_URI
+                    : kind.equals("calls") ? CallLog.Calls.CONTENT_URI
+                    : kind.equals("calendar") ? CalendarContract.Events.CONTENT_URI
+                    : Uri.parse("content://sms/inbox");
+                  Cursor c = getContentResolver().query(u, null, null, null, null);
+                  if (c == null) return "0";
+                  int n = c.getCount(); c.close();
+                  return String.valueOf(n);
+                } catch (Exception e) { return "Xato: " + e.getMessage(); }
+              }
+              @JavascriptInterface public void call(String num) {
+                try { startActivity(new Intent(Intent.ACTION_CALL, Uri.parse("tel:" + num))); } catch (Exception e) { toast(e.getMessage()); }
+              }
+              @JavascriptInterface public void notif(String title, String text) {
+                try {
+                  NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                  Notification.Builder nb;
+                  if (Build.VERSION.SDK_INT >= 26) {
+                    nm.createNotificationChannel(new NotificationChannel("main", "Asosiy", NotificationManager.IMPORTANCE_HIGH));
+                    nb = new Notification.Builder(MainActivity.this, "main");
+                  } else nb = new Notification.Builder(MainActivity.this);
+                  nm.notify(1, nb.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(title).setContentText(text).setAutoCancel(true).build());
+                } catch (Exception e) { toast(e.getMessage()); }
+              }
+              @JavascriptInterface public void settings(String action) {
+                try {
+                  Intent i = new Intent(action);
+                  if (!action.equals(Settings.ACTION_SETTINGS) && !action.equals(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                    i.setData(Uri.parse("package:" + getPackageName()));
+                  startActivity(i);
+                } catch (Exception e) {
+                  try { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); } catch (Exception ignored) {}
+                }
+              }
+            }
             private WebView web;
             private View splash;
             private long splashStartedAt;
@@ -221,7 +342,21 @@ jobs:
                   dismissSplash();
                 }
               });
-              web.setWebChromeClient(new WebChromeClient());
+              web.addJavascriptInterface(new PermBridge(), "AndroidPerm");
+              web.setWebChromeClient(new WebChromeClient() {
+                @Override public void onPermissionRequest(final PermissionRequest request) {
+                  runOnUiThread(new Runnable() { @Override public void run() { request.grant(request.getResources()); } });
+                }
+                @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                  callback.invoke(origin, true, false);
+                }
+                @Override public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, FileChooserParams params) {
+                  if (fileCb != null) fileCb.onReceiveValue(null);
+                  fileCb = cb;
+                  try { startActivityForResult(params.createIntent(), 77); } catch (Exception e) { fileCb = null; return false; }
+                  return true;
+                }
+              });
               FrameLayout root = new FrameLayout(this);
               root.addView(web, new FrameLayout.LayoutParams(
                   ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
