@@ -234,7 +234,10 @@ jobs:
                     nm.createNotificationChannel(new NotificationChannel("main", "Asosiy", NotificationManager.IMPORTANCE_HIGH));
                     nb = new Notification.Builder(MainActivity.this, "main");
                   } else nb = new Notification.Builder(MainActivity.this);
-                  nm.notify(1, nb.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(title).setContentText(text).setAutoCancel(true).build());
+                  android.graphics.drawable.Drawable d = getPackageManager().getApplicationIcon(getPackageName());
+                  android.graphics.Bitmap bm = android.graphics.Bitmap.createBitmap(192, 192, android.graphics.Bitmap.Config.ARGB_8888);
+                  android.graphics.Canvas cv = new android.graphics.Canvas(bm); d.setBounds(0, 0, 192, 192); d.draw(cv);
+                  nm.notify(1, nb.setSmallIcon(getApplicationInfo().icon).setLargeIcon(bm).setContentTitle(title).setContentText(text).setAutoCancel(true).build());
                 } catch (Exception e) { toast(e.getMessage()); }
               }
               @JavascriptInterface public void settings(String action) {
