@@ -214,10 +214,14 @@ jobs:
               FrameLayout root = new FrameLayout(this);
               root.addView(web, new FrameLayout.LayoutParams(
                   ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-              splashStartedAt = System.currentTimeMillis();
-              splash = createSplash();
-              root.addView(splash, new FrameLayout.LayoutParams(
-                  ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+              // Android 12+ already displays the system splash screen. Add our matching
+              // fallback only on older versions so users never see two splash screens.
+              if (android.os.Build.VERSION.SDK_INT < 31) {
+                splashStartedAt = System.currentTimeMillis();
+                splash = createSplash();
+                root.addView(splash, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+              }
               setContentView(root);
               if (b == null || web.restoreState(b) == null) web.loadUrl(%s);
             }
