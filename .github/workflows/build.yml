@@ -137,13 +137,13 @@ jobs:
               LinearLayout glass = new LinearLayout(this);
               glass.setOrientation(LinearLayout.VERTICAL);
               glass.setGravity(Gravity.CENTER);
-              glass.setPadding(dp(28), dp(30), dp(28), dp(26));
+              glass.setPadding(dp(40), dp(52), dp(40), dp(44));
               glass.setElevation(dp(18));
               GradientDrawable panel = new GradientDrawable();
               panel.setShape(GradientDrawable.RECTANGLE);
-              panel.setCornerRadius(dp(28));
-              panel.setColor(Color.argb(205, 43, 55, 48));
-              panel.setStroke(dp(1), Color.argb(105, 255, 255, 255));
+              panel.setCornerRadius(dp(36));
+              panel.setColor(Color.argb(200, 43, 55, 48));
+              panel.setStroke(dp(1), Color.argb(120, 255, 255, 255));
               glass.setBackground(panel);
           
               ImageView icon = new ImageView(this);
@@ -153,34 +153,34 @@ jobs:
               icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
               GradientDrawable iconFrame = new GradientDrawable();
               iconFrame.setShape(GradientDrawable.RECTANGLE);
-              iconFrame.setCornerRadius(dp(22));
+              iconFrame.setCornerRadius(dp(34));
               iconFrame.setColor(Color.argb(45, 255, 255, 255));
               icon.setBackground(iconFrame);
               icon.setClipToOutline(true);
-              glass.addView(icon, new LinearLayout.LayoutParams(dp(88), dp(88)));
+              glass.addView(icon, new LinearLayout.LayoutParams(dp(136), dp(136)));
           
-              TextView title = splashText(getString(R.string.app_name), 24, Color.WHITE);
+              TextView title = splashText(getString(R.string.app_name), 32, Color.WHITE);
               title.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
               LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
                   ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-              titleParams.topMargin = dp(18);
+              titleParams.topMargin = dp(28);
               glass.addView(title, titleParams);
           
               ProgressBar progress = new ProgressBar(this, null, android.R.attr.progressBarStyleSmall);
               if (android.os.Build.VERSION.SDK_INT >= 21) progress.getIndeterminateDrawable().setTint(Color.rgb(183, 243, 74));
-              LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(dp(30), dp(30));
-              progressParams.topMargin = dp(18);
+              LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(dp(40), dp(40));
+              progressParams.topMargin = dp(28);
               glass.addView(progress, progressParams);
           
-              TextView loading = splashText("Yuklanmoqda…", 13, Color.argb(190, 255, 255, 255));
+              TextView loading = splashText("Yuklanmoqda…", 17, Color.argb(190, 255, 255, 255));
               LinearLayout.LayoutParams loadingParams = new LinearLayout.LayoutParams(
                   ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-              loadingParams.topMargin = dp(10);
+              loadingParams.topMargin = dp(14);
               glass.addView(loading, loadingParams);
           
-              // Near-fullscreen glass panel: fills the screen except a thin margin,
-              // so only its border lines show around the edges.
-              int margin = dp(14);
+              // Near-fullscreen glass panel: only a few pixels of margin remain,
+              // so the panel almost covers the entire screen.
+              int margin = dp(4);
               FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
                   FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER);
               panelParams.setMargins(margin, margin, margin, margin);
