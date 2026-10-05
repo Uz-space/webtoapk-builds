@@ -57,6 +57,18 @@ jobs:
           }
           """ % (pkg, pkg))
           w("app/src/main/res/values/strings.xml", '<resources><string name="app_name">%s</string></resources>\n' % escape(name).replace("'", "\\'"))
+          w("app/src/main/res/values/styles.xml", """<resources>
+            <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+              <item name="android:fontFamily">sans</item>
+              <item name="android:windowActionModeOverlay">true</item>
+              <item name="android:windowFullscreen">true</item>
+              <item name="android:windowBackground">#101512</item>
+              <item name="android:statusBarColor">#101512</item>
+              <item name="android:navigationBarColor">#101512</item>
+              <item name="android:colorAccent">#B7F34A</item>
+            </style>
+          </resources>
+          """)
           icon_source = os.environ.get("APP_ICON")
           if icon_source and os.path.exists(icon_source):
               sizes = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
@@ -70,7 +82,7 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
             <uses-permission android:name="android.permission.INTERNET"/>
             <application android:label="@string/app_name"%s android:usesCleartextTraffic="true"
-                android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                android:theme="@style/AppTheme">
               <activity android:name=".MainActivity" android:exported="true"
                   android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode">
                 <intent-filter>
@@ -83,15 +95,107 @@ jobs:
           """ % (' android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"' if icon_source else ''))
           w("app/src/main/java/" + pkg.replace(".", "/") + "/MainActivity.java", """package %s;
           import android.app.Activity;
+          import android.graphics.Color;
+          import android.graphics.drawable.GradientDrawable;
           import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.view.Gravity;
           import android.view.View;
+          import android.view.ViewGroup;
           import android.view.WindowManager;
           import android.webkit.WebChromeClient;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import android.widget.FrameLayout;
+          import android.widget.ImageView;
+          import android.widget.LinearLayout;
+          import android.widget.ProgressBar;
+          import android.widget.TextView;
           public class MainActivity extends Activity {
             private WebView web;
+            private View splash;
+            private long splashStartedAt;
+            private int dp(int value) {
+              return Math.round(value * getResources().getDisplayMetrics().density);
+            }
+            private TextView splashText(String text, int size, int color) {
+              TextView view = new TextView(this);
+              view.setText(text);
+              view.setTextSize(size);
+              view.setTextColor(color);
+              view.setGravity(Gravity.CENTER);
+              return view;
+            }
+            private View createSplash() {
+              FrameLayout screen = new FrameLayout(this);
+              screen.setBackgroundColor(Color.rgb(16, 21, 18));
+          
+              LinearLayout glass = new LinearLayout(this);
+              glass.setOrientation(LinearLayout.VERTICAL);
+              glass.setGravity(Gravity.CENTER);
+              glass.setPadding(dp(28), dp(30), dp(28), dp(26));
+              glass.setElevation(dp(18));
+              GradientDrawable panel = new GradientDrawable();
+              panel.setShape(GradientDrawable.RECTANGLE);
+              panel.setCornerRadius(dp(28));
+              panel.setColor(Color.argb(205, 43, 55, 48));
+              panel.setStroke(dp(1), Color.argb(105, 255, 255, 255));
+              glass.setBackground(panel);
+          
+              ImageView icon = new ImageView(this);
+              icon.setImageDrawable(getApplicationInfo().loadIcon(getPackageManager()));
+              icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
+              GradientDrawable iconFrame = new GradientDrawable();
+              iconFrame.setShape(GradientDrawable.RECTANGLE);
+              iconFrame.setCornerRadius(dp(22));
+              iconFrame.setColor(Color.argb(45, 255, 255, 255));
+              icon.setBackground(iconFrame);
+              icon.setClipToOutline(true);
+              glass.addView(icon, new LinearLayout.LayoutParams(dp(88), dp(88)));
+          
+              TextView title = splashText(getString(R.string.app_name), 24, Color.WHITE);
+              title.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+              LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                  ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+              titleParams.topMargin = dp(18);
+              glass.addView(title, titleParams);
+          
+              ProgressBar progress = new ProgressBar(this, null, android.R.attr.progressBarStyleSmall);
+              if (android.os.Build.VERSION.SDK_INT >= 21) progress.getIndeterminateDrawable().setTint(Color.rgb(183, 243, 74));
+              LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(dp(30), dp(30));
+              progressParams.topMargin = dp(18);
+              glass.addView(progress, progressParams);
+          
+              TextView loading = splashText("Yuklanmoqda…", 13, Color.argb(190, 255, 255, 255));
+              LinearLayout.LayoutParams loadingParams = new LinearLayout.LayoutParams(
+                  ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+              loadingParams.topMargin = dp(10);
+              glass.addView(loading, loadingParams);
+          
+              int panelWidth = Math.min(getResources().getDisplayMetrics().widthPixels - dp(56), dp(360));
+              FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
+                  panelWidth, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+              screen.addView(glass, panelParams);
+              return screen;
+            }
+            private void dismissSplash() {
+              if (splash == null) return;
+              long wait = Math.max(0, 900 - (System.currentTimeMillis() - splashStartedAt));
+              new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                @Override public void run() {
+                  if (splash == null) return;
+                  final View current = splash;
+                  current.animate().alpha(0f).setDuration(320).withEndAction(new Runnable() {
+                    @Override public void run() {
+                      if (current.getParent() instanceof ViewGroup) ((ViewGroup) current.getParent()).removeView(current);
+                      if (splash == current) splash = null;
+                    }
+                  }).start();
+                }
+              }, wait);
+            }
             private void showImmersive() {
               getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
               getWindow().getDecorView().setSystemUiVisibility(
@@ -117,9 +221,21 @@ jobs:
               WebSettings s = web.getSettings();
               s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setDatabaseEnabled(true);
               s.setLoadWithOverviewMode(true); s.setUseWideViewPort(true); s.setMediaPlaybackRequiresUserGesture(false);
-              web.setWebViewClient(new WebViewClient());
+              web.setWebViewClient(new WebViewClient() {
+                @Override public void onPageFinished(WebView view, String loadedUrl) {
+                  super.onPageFinished(view, loadedUrl);
+                  dismissSplash();
+                }
+              });
               web.setWebChromeClient(new WebChromeClient());
-              setContentView(web);
+              FrameLayout root = new FrameLayout(this);
+              root.addView(web, new FrameLayout.LayoutParams(
+                  ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+              splashStartedAt = System.currentTimeMillis();
+              splash = createSplash();
+              root.addView(splash, new FrameLayout.LayoutParams(
+                  ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+              setContentView(root);
               if (b == null) web.loadUrl(%s); else web.restoreState(b);
             }
             @Override public void onWindowFocusChanged(boolean hasFocus) {
