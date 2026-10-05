@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Android ruxsatlari</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{background:#0b0f0d;color:#eef3ea;font-family:system-ui,-apple-system,Roboto,sans-serif}
+body{padding:max(20px,env(safe-area-inset-top)) 14px calc(28px + env(safe-area-inset-bottom))}
+h1{font-size:21px;font-weight:700}
+.sub{color:#8d9a89;font-size:13px;margin-top:4px}
+.dev{margin-top:12px;padding:10px 12px;border:1px solid #222b24;border-radius:12px;background:#121814;font-size:12px;color:#93a08f}
+.bar{display:flex;gap:8px;margin-top:12px}
+.bar button{flex:1;padding:12px;border:0;border-radius:12px;background:#b7f34a;color:#0b0f0d;font-weight:700;font-size:14px}
+.bar button.g{background:#1a2219;color:#b7f34a;border:1px solid #2c3a2b}
+h2{margin:22px 0 8px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#6f7d6c}
+.c{border:1px solid #222b24;border-radius:16px;background:#121814;padding:14px;margin-bottom:10px}
+.t{display:flex;align-items:center;gap:10px}
+.t .e{font-size:20px}
+.t .n{flex:1;font-weight:600;font-size:15px}
+.st{font-size:11px;padding:4px 9px;border-radius:999px;background:#242e24;color:#93a08f;white-space:nowrap}
+.st.ok{background:#1d3318;color:#b7f34a}.st.no{background:#3a1f1f;color:#ff8f7a}
+.d{color:#8d9a89;font-size:12px;margin-top:6px;line-height:1.45}
+.a{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.a button{flex:1;min-width:120px;padding:10px;border-radius:11px;border:1px solid #2c3a2b;background:#19211a;color:#dcebd4;font-size:13px;font-weight:600}
+.a button:active{filter:brightness(1.4)}
+.a button.p{background:#b7f34a;color:#0b0f0d;border-color:#b7f34a}
+.r{margin-top:9px;font-size:12px;color:#b7f34a;word-break:break-word;white-space:pre-wrap}
+.r.err{color:#ff8f7a}
+video{width:100%;border-radius:12px;margin-top:9px;background:#000}
+.lvl{height:7px;border-radius:9px;background:#242e24;margin-top:9px;overflow:hidden}
+.lvl i{display:block;height:100%;width:0;background:#b7f34a}
+input[type=file]{display:none}
+</style></head><body>
+<h1>Android ruxsatlari</h1>
+<p class="sub">Har bir ruxsatni so'rab, darhol amalda sinab ko'rishingiz mumkin.</p>
+<div class="dev" id="dev">Qurilma aniqlanmoqda…</div>
+<div class="bar">
+  <button id="all">Hammasini so'rash</button>
+  <button class="g" id="rescan">Holatni yangilash</button>
+</div>
+<div id="list"></div>
+<input type="file" id="f" multiple>
+<script>
+var B = window.AndroidPerm || null;
+var P = "android.permission.";
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function out(card,msg,bad){var r=card.querySelector(".r");r.className="r"+(bad?" err":"");r.textContent=msg}
+
+var ITEMS = [
+ {g:"Kamera va mikrofon",items:[
+  {e:"📷",n:"Kamera",p:"CAMERA",d:"Rasm va video olish uchun kamera oqimini ochadi.",act:"Kamerani yoqish",run:camera},
+  {e:"🎙️",n:"Mikrofon",p:"RECORD_AUDIO",d:"Ovoz yozish va ovoz darajasini o'lchash.",act:"Ovozni o'lchash",run:mic},
+  {e:"🔦",n:"Chiroq (flash)",p:"CAMERA",d:"Kamera chirog'ini yoqib-o'chirish.",act:"Chiroqni yoqish",run:torch}]},
+ {g:"Joylashuv",items:[
+  {e:"📍",n:"Aniq joylashuv",p:"ACCESS_FINE_LOCATION",d:"GPS orqali aniq koordinatalar.",act:"Joyimni topish",run:geo},
+  {e:"🗺️",n:"Taxminiy joylashuv",p:"ACCESS_COARSE_LOCATION",d:"Tarmoq orqali taxminiy joylashuv.",act:"Joyimni topish",run:geo},
+  {e:"🧭",n:"Fonda joylashuv",p:"ACCESS_BACKGROUND_LOCATION",d:"Ilova yopiq bo'lganda ham joylashuv (Android 10+).",act:null}]},
+ {g:"Shaxsiy ma'lumotlar",items:[
+  {e:"👥",n:"Kontaktlar",p:"READ_CONTACTS",d:"Telefon kitobidagi kontaktlarni o'qish.",act:"Kontaktlarni sanash",run:cnt("contacts","kontakt")},
+  {e:"📅",n:"Kalendar",p:"READ_CALENDAR",d:"Kalendardagi tadbirlarni o'qish.",act:"Tadbirlarni sanash",run:cnt("calendar","tadbir")},
+  {e:"💬",n:"SMS o'qish",p:"READ_SMS",d:"Kelgan SMS xabarlarni o'qish.",act:"SMS'larni sanash",run:cnt("sms","xabar")},
+  {e:"📞",n:"Qo'ng'iroq tarixi",p:"READ_CALL_LOG",d:"Qo'ng'iroqlar jurnalini o'qish.",act:"Qo'ng'iroqlarni sanash",run:cnt("calls","qo'ng'iroq")},
+  {e:"📱",n:"Telefon holati",p:"READ_PHONE_STATE",d:"Qurilma va aloqa holati haqidagi ma'lumot.",act:null},
+  {e:"☎️",n:"Qo'ng'iroq qilish",p:"CALL_PHONE",d:"Ilovadan to'g'ridan-to'g'ri qo'ng'iroq qilish.",act:"Sinov raqamiga qo'ng'iroq",run:call},
+  {e:"✉️",n:"SMS yuborish",p:"SEND_SMS",d:"Ilovadan SMS yuborish ruxsati.",act:null}]},
+ {g:"Fayl va xotira",items:[
+  {e:"🖼️",n:"Rasmlar",p:"READ_MEDIA_IMAGES",d:"Galereyadagi rasmlarga kirish (Android 13+).",act:"Fayl tanlash",run:pick},
+  {e:"🎬",n:"Videolar",p:"READ_MEDIA_VIDEO",d:"Galereyadagi videolar (Android 13+).",act:"Fayl tanlash",run:pick},
+  {e:"🎵",n:"Audio fayllar",p:"READ_MEDIA_AUDIO",d:"Musiqa va audio fayllar (Android 13+).",act:"Fayl tanlash",run:pick},
+  {e:"💾",n:"Xotirani o'qish",p:"READ_EXTERNAL_STORAGE",d:"Eski Android'larda umumiy xotira.",act:"Fayl tanlash",run:pick}]},
+ {g:"Bildirishnoma va sensorlar",items:[
+  {e:"🔔",n:"Bildirishnomalar",p:"POST_NOTIFICATIONS",d:"Qurilmada bildirishnoma ko'rsatish (Android 13+).",act:"Bildirishnoma yuborish",run:notif},
+  {e:"📳",n:"Tebranish",p:"VIBRATE",d:"Qurilmani tebratish.",act:"Tebratib ko'rish",run:vib},
+  {e:"🏃",n:"Harakat (qadam)",p:"ACTIVITY_RECOGNITION",d:"Yurish/qadam sanash sensori (Android 10+).",act:null},
+  {e:"❤️",n:"Tana sensorlari",p:"BODY_SENSORS",d:"Yurak urishi kabi tana sensorlari.",act:null},
+  {e:"📐",n:"Akselerometr",p:null,d:"Ruxsat talab qilmaydi — qurilma harakatini o'qiydi.",act:"Harakatni o'qish",run:motion},
+  {e:"🧲",n:"Kompas",p:null,d:"Qurilma yo'nalishini o'qiydi.",act:"Yo'nalishni o'qish",run:orient}]},
+ {g:"Aloqa va tizim",items:[
+  {e:"🔵",n:"Bluetooth",p:"BLUETOOTH_CONNECT",d:"Bluetooth qurilmalariga ulanish (Android 12+).",act:null},
+  {e:"🔍",n:"Bluetooth qidirish",p:"BLUETOOTH_SCAN",d:"Atrofdagi Bluetooth qurilmalarni qidirish.",act:null},
+  {e:"📶",n:"Wi-Fi holati",p:"ACCESS_WIFI_STATE",d:"Tarmoq holatini o'qish.",act:"Tarmoqni ko'rish",run:net},
+  {e:"📡",n:"NFC",p:"NFC",d:"NFC teglarini o'qish.",act:null},
+  {e:"🔋",n:"Batareya",p:null,d:"Ruxsat talab qilmaydi — batareya holati.",act:"Batareyani ko'rish",run:batt},
+  {e:"📋",n:"Clipboard",p:null,d:"Matnni nusxalash va o'qish.",act:"Nusxalab ko'rish",run:clip},
+  {e:"⚙️",n:"Ilova sozlamalari",p:null,d:"Android'dagi ruxsatlar sahifasini ochadi.",act:"Sozlamalarni ochish",run:settings}]}
+];
+
+function card(it){
+  var c=el("div","c");
+  var t=el("div","t");
+  t.appendChild(el("span","e",it.e));
+  t.appendChild(el("span","n",it.n));
+  var st=el("span","st",it.p?"tekshirilmoqda…":"ruxsat kerak emas");
+  if(!it.p)st.className="st ok";
+  t.appendChild(st);
+  c.appendChild(t);
+  c.appendChild(el("div","d",it.d));
+  var a=el("div","a");
+  if(it.p){
+    var rb=el("button","p","Ruxsat so'rash");
+    rb.onclick=function(){ask(it,c)};
+    a.appendChild(rb);
+  }
+  if(it.act){
+    var tb=el("button",null,it.act);
+    tb.onclick=function(){try{it.run(c)}catch(e){out(c,String(e),1)}};
+    a.appendChild(tb);
+  }
+  c.appendChild(a);
+  c.appendChild(el("div","r",""));
+  c._st=st;c._it=it;
+  return c;
+}
+var cards=[];
+var list=document.getElementById("list");
+ITEMS.forEach(function(grp){
+  list.appendChild(el("h2",null,grp.g));
+  grp.items.forEach(function(it){var c=card(it);cards.push(c);list.appendChild(c)});
+});
+
+function refresh(){
+  cards.forEach(function(c){
+    var it=c._it;if(!it.p)return;
+    if(!B){c._st.className="st";c._st.textContent="brauzerda";return}
+    var ok=false;try{ok=B.has(P+it.p)}catch(e){}
+    c._st.className="st "+(ok?"ok":"no");
+    c._st.textContent=ok?"ruxsat berilgan":"ruxsat yo'q";
+  });
+}
+function ask(it,c){
+  if(!B){out(c,"Bu sinov faqat APK ichida ishlaydi.",1);return}
+  try{B.request(P+it.p)}catch(e){out(c,String(e),1)}
+}
+window.onAndroidPerm=function(p,granted){
+  cards.forEach(function(c){
+    if(c._it.p&&P+c._it.p===p){
+      c._st.className="st "+(granted?"ok":"no");
+      c._st.textContent=granted?"ruxsat berilgan":"rad etilgan";
+      out(c,granted?"Ruxsat berildi ✓":"Ruxsat rad etildi. Sozlamalardan yoqishingiz mumkin.",!granted);
+    }
+  });
+};
+document.getElementById("rescan").onclick=refresh;
+document.getElementById("all").onclick=function(){
+  if(!B){alert("Faqat APK ichida ishlaydi");return}
+  var seen={};
+  cards.forEach(function(c){var p=c._it.p;if(!p||seen[p])return;seen[p]=1;setTimeout(function(){try{B.request(P+p)}catch(e){}},0)});
+};
+
+function camera(c){
+  navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}}).then(function(s){
+    var v=c.querySelector("video");
+    if(!v){v=document.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;c.appendChild(v)}
+    v.srcObject=s;out(c,"Kamera ishlayapti ✓");
+  }).catch(function(e){out(c,"Kamera ochilmadi: "+e.message,1)});
+}
+function mic(c){
+  navigator.mediaDevices.getUserMedia({audio:true}).then(function(s){
+    var bar=c.querySelector(".lvl");
+    if(!bar){bar=el("div","lvl");bar.appendChild(document.createElement("i"));c.appendChild(bar)}
+    var AC=window.AudioContext||window.webkitAudioContext,ac=new AC();
+    var an=ac.createAnalyser();an.fftSize=512;ac.createMediaStreamSource(s).connect(an);
+    var buf=new Uint8Array(an.frequencyBinCount);
+    out(c,"Gapiring — ovoz darajasi ko'rinadi ✓");
+    (function loop(){an.getByteFrequencyData(buf);var sum=0;for(var i=0;i<buf.length;i++)sum+=buf[i];
+      bar.firstChild.style.width=Math.min(100,(sum/buf.length)*2)+"%";requestAnimationFrame(loop)})();
+  }).catch(function(e){out(c,"Mikrofon ochilmadi: "+e.message,1)});
+}
+var torchOn=false;
+function torch(c){
+  if(!B){out(c,"Faqat APK ichida ishlaydi.",1);return}
+  torchOn=!torchOn;
+  var r=B.torch(torchOn);
+  out(c,r==="ok"?(torchOn?"Chiroq yoqildi ✓":"Chiroq o'chirildi"):"Xato: "+r,r!=="ok");
+}
+function geo(c){
+  out(c,"Joylashuv aniqlanmoqda…");
+  navigator.geolocation.getCurrentPosition(function(p){
+    out(c,"Kenglik: "+p.coords.latitude.toFixed(5)+"\nUzunlik: "+p.coords.longitude.toFixed(5)+"\nAniqlik: ±"+Math.round(p.coords.accuracy)+" m");
+  },function(e){out(c,"Joylashuv olinmadi: "+e.message,1)},{enableHighAccuracy:true,timeout:15000});
+}
+function cnt(kind,word){return function(c){
+  if(!B){out(c,"Faqat APK ichida ishlaydi.",1);return}
+  var r=B.count(kind);
+  out(c,/^[0-9]+$/.test(r)?r+" ta "+word+" topildi ✓":r,!/^[0-9]+$/.test(r));
+}}
+function call(c){
+  if(!B){out(c,"Faqat APK ichida ishlaydi.",1);return}
+  B.call("1001");out(c,"Qo'ng'iroq ilovasi ochildi (1001)");
+}
+function pick(c){
+  var f=document.getElementById("f");
+  f.onchange=function(){
+    if(!f.files.length){out(c,"Fayl tanlanmadi",1);return}
+    var names=[];for(var i=0;i<f.files.length;i++)names.push(f.files[i].name+" ("+Math.round(f.files[i].size/1024)+" KB)");
+    out(c,"Tanlandi ✓\n"+names.join("\n"));
+  };
+  f.click();
+}
+function notif(c){
+  if(!B){out(c,"Faqat APK ichida ishlaydi.",1);return}
+  B.notif("Salom!","Bu sinov bildirishnomasi.");out(c,"Bildirishnoma yuborildi ✓");
+}
+function vib(c){
+  if(B){B.vibrate(400);out(c,"Tebranish yuborildi ✓");return}
+  if(navigator.vibrate){navigator.vibrate(400);out(c,"Tebranish yuborildi ✓")}else out(c,"Qo'llab-quvvatlanmaydi",1);
+}
+function motion(c){
+  out(c,"Qurilmani silkitib ko'ring…");
+  var h=function(e){var a=e.accelerationIncludingGravity||{};
+    out(c,"X: "+(a.x||0).toFixed(2)+"  Y: "+(a.y||0).toFixed(2)+"  Z: "+(a.z||0).toFixed(2))};
+  window.removeEventListener("devicemotion",window._m);window._m=h;
+  window.addEventListener("devicemotion",h);
+}
+function orient(c){
+  out(c,"Qurilmani aylantirib ko'ring…");
+  var h=function(e){out(c,"Alpha: "+Math.round(e.alpha||0)+"°  Beta: "+Math.round(e.beta||0)+"°  Gamma: "+Math.round(e.gamma||0)+"°")};
+  window.removeEventListener("deviceorientation",window._o);window._o=h;
+  window.addEventListener("deviceorientation",h);
+}
+function net(c){
+  var n=navigator.connection||{};
+  out(c,"Onlayn: "+(navigator.onLine?"ha":"yo'q")+"\nTuri: "+(n.effectiveType||"noma'lum")+"\nTezlik: "+(n.downlink!=null?n.downlink+" Mb/s":"noma'lum"));
+}
+function batt(c){
+  if(!navigator.getBattery){out(c,"Qo'llab-quvvatlanmaydi",1);return}
+  navigator.getBattery().then(function(b){out(c,"Quvvat: "+Math.round(b.level*100)+"%\nQuvvatlanmoqda: "+(b.charging?"ha":"yo'q"))});
+}
+function clip(c){
+  var txt="Android ruxsatlari sinovi";
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){out(c,"Nusxalandi ✓: "+txt)}).catch(function(e){out(c,"Xato: "+e.message,1)});
+  } else out(c,"Qo'llab-quvvatlanmaydi",1);
+}
+function settings(c){
+  if(!B){out(c,"Faqat APK ichida ishlaydi.",1);return}
+  B.settings("android.settings.APPLICATION_DETAILS_SETTINGS");out(c,"Sozlamalar ochildi");
+}
+
+document.getElementById("dev").textContent = B
+  ? B.device() + " · API " + B.sdk()
+  : "Brauzer rejimi: ruxsat sinovlari APK ichida to'liq ishlaydi.";
+refresh();
+</script></body></html>
