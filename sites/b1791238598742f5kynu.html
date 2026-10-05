@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Kalkulyator</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:#0e1210;color:#eef3ea;font-family:system-ui,-apple-system,Roboto,sans-serif}
+body{display:flex;flex-direction:column;padding:max(24px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom))}
+h1{font-size:22px;font-weight:700;margin-bottom:18px}
+label{display:block;font-size:13px;color:#93a08f;margin:14px 0 6px}
+input,select{width:100%;padding:14px;border-radius:14px;border:1px solid #2a332c;background:#171d19;color:#eef3ea;font-size:18px;outline:none}
+input:focus,select:focus{border-color:#b7f34a}
+.out{margin-top:22px;padding:20px;border-radius:18px;background:#171d19;border:1px solid #2a332c}
+.out small{color:#93a08f;font-size:13px}.out b{display:block;font-size:30px;color:#b7f34a;margin-top:4px;word-break:break-all}
+.row{display:flex;gap:10px}.row>*{flex:1}
+body{justify-content:flex-end}
+#d{min-height:120px;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-end;padding:10px 6px 22px}
+#e{color:#93a08f;font-size:22px;min-height:28px;word-break:break-all;text-align:right}
+#r{font-size:56px;font-weight:300;word-break:break-all;text-align:right}
+.g{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+button{aspect-ratio:1;border:0;border-radius:50%;font-size:28px;background:#1f2622;color:#eef3ea}
+button:active{filter:brightness(1.4)}
+.o{background:#b7f34a;color:#0e1210;font-weight:600}.f{background:#323b35}
+.z{grid-column:span 2;aspect-ratio:auto;border-radius:999px;text-align:left;padding-left:30px}
+</style></head><body><div id="d"><div id="e"></div><div id="r">0</div></div>
+<div class="g">
+<button class="f" data-k="C">C</button><button class="f" data-k="±">±</button><button class="f" data-k="%">%</button><button class="o" data-k="/">÷</button>
+<button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button><button class="o" data-k="*">×</button>
+<button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button><button class="o" data-k="-">−</button>
+<button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button><button class="o" data-k="+">+</button>
+<button class="z" data-k="0">0</button><button data-k=".">,</button><button class="o" data-k="=">=</button>
+</div><script>var cur="0",acc=null,op=null,fresh=false,R=document.getElementById("r"),E=document.getElementById("e");
+var sym={"+":"+","-":"−","*":"×","/":"÷"};
+function fmt(n){if(!isFinite(n))return"Xato";var s=String(+n.toPrecision(12));return s.replace(".",",")}
+function calc(a,b,o){return o=="+"?a+b:o=="-"?a-b:o=="*"?a*b:a/b}
+function show(){R.textContent=cur.replace(".",",");E.textContent=acc!==null&&op?fmt(acc)+" "+sym[op]:""}
+document.querySelector(".g").addEventListener("click",function(ev){var k=ev.target.getAttribute("data-k");if(!k)return;
+if(/[0-9]/.test(k)){cur=(fresh||cur=="0")?k:(cur.length<15?cur+k:cur);fresh=false}
+else if(k=="."){if(fresh){cur="0.";fresh=false}else if(cur.indexOf(".")<0)cur+="."}
+else if(k=="C"){cur="0";acc=null;op=null}
+else if(k=="±"){cur=String(-parseFloat(cur))}
+else if(k=="%"){cur=String(parseFloat(cur)/100)}
+else if(k=="="){if(op!==null){cur=String(+calc(acc,parseFloat(cur),op).toPrecision(12));acc=null;op=null;fresh=true}}
+else{if(op!==null&&!fresh)cur=String(+calc(acc,parseFloat(cur),op).toPrecision(12));acc=parseFloat(cur);op=k;fresh=true}
+if(cur=="Infinity"||cur=="-Infinity"||cur=="NaN"){R.textContent="Xato";cur="0";acc=null;op=null;E.textContent="";return}
+show()});</script></body></html>
