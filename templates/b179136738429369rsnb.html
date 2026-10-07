@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claimer Dashboard</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            background-color: #000000;
+            color: #ffffff;
+            overflow: hidden;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            padding: 4px;
+        }
+
+        .bg-mesh {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            background: 
+                radial-gradient(circle at 15% 15%, rgba(35, 35, 35, 0.45) 0%, transparent 45%),
+                radial-gradient(circle at 85% 85%, rgba(20, 20, 20, 0.45) 0%, transparent 45%);
+            filter: blur(140px);
+            pointer-events: none;
+        }
+
+        .app-root {
+            position: relative;
+            z-index: 2;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .btn {
+            padding: 7px 12px;
+            border-radius: 25px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .btn-primary {
+            background: #ffffff;
+            color: #000000;
+        }
+
+        .btn-primary:hover {
+            background: #e0e0e0;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.06);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 25px;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        /* Top control bar */
+        .control-bar {
+            background: rgba(18, 18, 18, 0.65);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 25px;
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .api-input-wrap {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .api-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #777777;
+            font-weight: 500;
+        }
+
+        .api-input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: #ffffff;
+            font-size: 11px;
+            outline: none;
+        }
+
+        /* Table container */
+        .table-wrapper {
+            background: rgba(18, 18, 18, 0.65);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 25px;
+            padding: 10px 14px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            overflow-y: auto;
+        }
+
+        /* Symmetric 1fr 1fr 1fr Grid Layout */
+        .grid-header, .grid-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            align-items: center;
+            padding: 10px 6px;
+            width: 100%;
+        }
+
+        .grid-header {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #777777;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            font-weight: 500;
+        }
+
+        .grid-row {
+            font-size: 12px;
+            color: #cccccc;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .grid-row:last-child {
+            border-bottom: none;
+        }
+
+        .col-1, .col-2, .col-3 {
+            text-align: center;
+            justify-self: center;
+        }
+
+        .account-name {
+            font-weight: 500;
+            color: #ffffff;
+        }
+
+        .balance-text {
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .timer-text {
+            color: #aaaaaa;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        .modal {
+            background: rgba(25, 25, 25, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 25px;
+            padding: 24px;
+            width: 100%;
+            max-width: 340px;
+        }
+
+        .modal h3 {
+            font-size: 14px;
+            margin-bottom: 12px;
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        .modal input {
+            width: 100%;
+            padding: 10px 14px;
+            background: rgba(10, 10, 10, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 25px;
+            color: #ffffff;
+            font-size: 12px;
+            outline: none;
+            margin-bottom: 16px;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="bg-mesh"></div>
+
+    <div class="app-root">
+        <div class="control-bar">
+            <div class="api-input-wrap">
+                <div class="api-label">Global API Key</div>
+                <input type="password" class="api-input" id="apiKeyField" value="sk_live_9f88c29410aa77">
+            </div>
+            <button class="btn btn-secondary" onclick="saveApiKey()">Save</button>
+            <button class="btn btn-secondary" id="systemBtn" onclick="toggleSystem()">Stop System</button>
+            <button class="btn btn-primary" onclick="openModal()">+ Add Account</button>
+        </div>
+
+        <div class="table-wrapper">
+            <div class="grid-header">
+                <div class="col-1">Account</div>
+                <div class="col-2">Balance</div>
+                <div class="col-3">Next Claim In</div>
+            </div>
+            <div id="accountsBody" style="width: 100%;">
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="accountModal">
+        <div class="modal">
+            <h3>Add Account (Max 10 chars)</h3>
+            <input type="text" id="newAccountName" maxlength="10" placeholder="alphauzs">
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal()" style="flex:1;">Cancel</button>
+                <button class="btn btn-primary" onclick="addAccount()" style="flex:1;">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let accounts = [
+            { name: "alphauzs", balance: 342.50, timeLeft: 3600 },
+            { name: "trader", balance: 289.00, timeLeft: 1845 },
+            { name: "user", balance: 156.20, timeLeft: 220 },
+            { name: "hk", balance: 512.00, timeLeft: 0 }
+        ];
+
+        let systemActive = true;
+
+        function formatTime(seconds) {
+            if (seconds <= 0) return "Ready Now";
+            const m = Math.floor(seconds / 60);
+            const s = seconds % 60;
+            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+
+        function render() {
+            const container = document.getElementById('accountsBody');
+            container.innerHTML = '';
+
+            accounts.forEach((acc) => {
+                const row = document.createElement('div');
+                row.className = 'grid-row';
+                row.innerHTML = `
+                    <div class="col-1"><span class="account-name">${acc.name}</span></div>
+                    <div class="col-2"><span class="balance-text">${acc.balance.toFixed(2)} TKN</span></div>
+                    <div class="col-3"><span class="timer-text">${formatTime(acc.timeLeft)}</span></div>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        setInterval(() => {
+            if (!systemActive) return;
+            let updated = false;
+            accounts.forEach(acc => {
+                if (acc.timeLeft > 0) {
+                    acc.timeLeft--;
+                    updated = true;
+                }
+            });
+            if (updated) {
+                render();
+            }
+        }, 1000);
+
+        function saveApiKey() {
+            const key = document.getElementById('apiKeyField').value;
+            localStorage.setItem('global_api_key', key);
+            alert('API Key saved successfully.');
+        }
+
+        function toggleSystem() {
+            systemActive = !systemActive;
+            const btn = document.getElementById('systemBtn');
+            if (systemActive) {
+                btn.innerText = 'Stop System';
+                btn.style.background = 'rgba(255, 255, 255, 0.06)';
+                btn.style.color = '#ffffff';
+            } else {
+                btn.innerText = 'Start System';
+                btn.style.background = '#ffffff';
+                btn.style.color = '#000000';
+            }
+        }
+
+        function openModal() {
+            document.getElementById('accountModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('accountModal').style.display = 'none';
+            document.getElementById('newAccountName').value = '';
+        }
+
+        function addAccount() {
+            let name = document.getElementById('newAccountName').value.trim();
+            if (!name) return;
+            if (name.length > 10) {
+                name = name.substring(0, 10);
+            }
+
+            accounts.push({
+                name: name,
+                balance: 0.00,
+                timeLeft: 3600 // 60:00
+            });
+
+            closeModal();
+            render();
+        }
+
+        render();
+    </script>
+</body>
+</html>
