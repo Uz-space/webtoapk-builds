@@ -87,7 +87,7 @@ jobs:
           w("app/src/main/AndroidManifest.xml", """<?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
             <uses-permission android:name="android.permission.INTERNET"/>
-            <application android:label="@string/app_name"%s android:usesCleartextTraffic="true"
+            <application android:label="@string/app_name"%s android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true"
                 android:theme="@style/AppTheme">
               <activity android:name=".MainActivity" android:exported="true"
                   android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode">
@@ -242,16 +242,36 @@ jobs:
                     : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
                 getWindow().setAttributes(params);
               }
-              showImmersive();
-              web = new WebView(this);
+              try { showImmersive(); } catch (Throwable ignored) {}
+              try {
+                web = new WebView(this);
+              } catch (Throwable t) {
+                TextView msg = splashText("Telefoningizda Android System WebView o'rnatilmagan yoki yangilanmoqda. Play Market orqali yangilab, qayta oching.", 16, Color.WHITE);
+                msg.setBackgroundColor(Color.rgb(16, 21, 18));
+                msg.setPadding(dp(24), dp(24), dp(24), dp(24));
+                setContentView(msg);
+                return;
+              }
               WebSettings s = web.getSettings();
               s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setDatabaseEnabled(true);
               s.setAllowFileAccess(true); s.setAllowContentAccess(true); s.setAllowFileAccessFromFileURLs(true); s.setAllowUniversalAccessFromFileURLs(true);
+              s.setJavaScriptCanOpenWindowsAutomatically(true);
+              if (android.os.Build.VERSION.SDK_INT >= 21) s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
               s.setLoadWithOverviewMode(true); s.setUseWideViewPort(true); s.setMediaPlaybackRequiresUserGesture(false);
               web.setWebViewClient(new WebViewClient() {
                 @Override public void onPageFinished(WebView view, String loadedUrl) {
                   super.onPageFinished(view, loadedUrl);
                   dismissSplash();
+                }
+                @Override public void onReceivedError(WebView view, int code, String desc, String failingUrl) {
+                  dismissSplash();
+                }
+                @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                  // Low-memory phones can kill the page renderer; restart the screen instead of crashing the app.
+                  if (view.getParent() instanceof ViewGroup) ((ViewGroup) view.getParent()).removeView(view);
+                  view.destroy();
+                  if (view == web) { web = null; recreate(); }
+                  return true;
                 }
               });
               web.setWebChromeClient(new WebChromeClient());
@@ -263,14 +283,38 @@ jobs:
               root.addView(splash, new FrameLayout.LayoutParams(
                   ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
               setContentView(root);
-              if (b == null) web.loadUrl(%s); else web.restoreState(b);
+              if (b == null || web.restoreState(b) == null) loadStart();
+              // Never leave the loading screen up forever.
+              new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                @Override public void run() { dismissSplash(); }
+              }, 10000);
             }
+            private void loadStart() {
+              String start = %s;
+              String asset = "file:///android_asset/";
+              if (start.startsWith(asset)) {
+                // Embedded template: read it and load with a real https origin so
+                // localStorage and scripts work the same on every Android version.
+                try {
+                  java.io.InputStream in = getAssets().open(start.substring(asset.length()));
+                  java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                  byte[] buf = new byte[8192]; int n;
+                  while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                  in.close();
+                  web.loadDataWithBaseURL("https://app.local/", out.toString("UTF-8"), "text/html", "UTF-8", null);
+                  return;
+                } catch (Throwable t) { /* fall back to file URL */ }
+              }
+              web.loadUrl(start);
+            }
+            @Override protected void onPause() { super.onPause(); if (web != null) web.onPause(); }
+            @Override protected void onResume() { super.onResume(); if (web != null) web.onResume(); }
             @Override public void onWindowFocusChanged(boolean hasFocus) {
               super.onWindowFocusChanged(hasFocus);
-              if (hasFocus) showImmersive();
+              if (hasFocus) { try { showImmersive(); } catch (Throwable ignored) {} }
             }
-            @Override protected void onSaveInstanceState(Bundle o) { super.onSaveInstanceState(o); web.saveState(o); }
-            @Override public void onBackPressed() { if (web.canGoBack()) web.goBack(); else super.onBackPressed(); }
+            @Override protected void onSaveInstanceState(Bundle o) { super.onSaveInstanceState(o); if (web != null) web.saveState(o); }
+            @Override public void onBackPressed() { if (web != null && web.canGoBack()) web.goBack(); else super.onBackPressed(); }
           }
           """ % (pkg, json.dumps(url)))
           
