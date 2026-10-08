@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Masofaviy ulanish</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:#0e1210;color:#eef3ea;font-family:system-ui,-apple-system,Roboto,sans-serif}
+body{display:flex;flex-direction:column;padding:max(24px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom))}
+h1{font-size:22px;font-weight:700;margin-bottom:6px}
+p.sub{color:#93a08f;font-size:14px;margin-bottom:18px}
+label{display:block;font-size:13px;color:#93a08f;margin:14px 0 6px}
+input{width:100%;padding:14px;border-radius:14px;border:1px solid #2a332c;background:#171d19;color:#eef3ea;font-size:16px;outline:none}
+input:focus{border-color:#b7f34a}
+button{width:100%;margin-top:18px;padding:16px;border:0;border-radius:16px;background:#b7f34a;color:#0e1210;font-size:16px;font-weight:700}
+button:disabled{opacity:.5}
+.card{margin-top:18px;padding:18px;border-radius:18px;background:#171d19;border:1px solid #2a332c}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between}
+.dot{width:10px;height:10px;border-radius:50%;background:#555;flex-shrink:0}
+.dot.on{background:#b7f34a;box-shadow:0 0 10px #b7f34a}
+.dot.live{background:#ff5d5d;box-shadow:0 0 10px #ff5d5d;animation:p 1s infinite}
+@keyframes p{50%{opacity:.4}}
+#admin{display:block;width:100%;margin-top:14px;padding:12px;border-radius:14px;border:1px solid #2a332c;background:transparent;color:#93a08f;font-size:14px;font-weight:600;text-align:center;text-decoration:none}
+#admin:active{border-color:#b7f34a;color:#b7f34a}
+#log{margin-top:14px;font-size:12px;color:#93a08f;max-height:160px;overflow:auto;line-height:1.6}
+video{width:100%;aspect-ratio:4/3;background:#000;object-fit:cover;border-radius:8px;margin-top:14px;display:none}
+</style></head><body>
+<h1>Masofaviy ulanish</h1><p class="sub">Kamera va mikrofon faqat siz qabul qilgan ulanish davomida uzatiladi.</p>
+<div id="setup"><label>Ismingiz</label><input id="name" maxlength="80" placeholder="Masalan: Diyor telefoni"><button id="grant">Ulanishga tayyor bo‘lish</button></div>
+<div id="ready" hidden><div class="card"><div class="row"><b id="who"></b><span class="row"><span class="dot" id="dot"></span><small id="status">Kutilmoqda</small></span></div></div>
+<div id="request" class="card" hidden><b>Admin ulanishni so‘ramoqda</b><p class="sub">Kamera tasviri va mikrofon ovozi jonli uzatiladi.</p><button id="accept">Ulanishni qabul qilish</button><button id="decline">Rad etish</button></div>
+<video id="video" autoplay playsinline muted></video><button id="stop" hidden>Uzatishni to‘xtatish</button><button id="revoke">Ulanishni bekor qilish</button></div>
+<div id="log" role="status" aria-live="polite"></div>
+<a id="admin" href="http://localhost:8080/admin">Admin panelga kirish</a>
+<script>
+var ORIGIN="http://localhost:8080", preview=ORIGIN.indexOf("__APP_")===0;
+var $=function(id){return document.getElementById(id)},pc=null,stream=null,session=null,pending=null,ice=[],timer=null,heartbeat=null,cursor=0,busy=false,enabled=false,generation=0,name="",identity=null;
+if(preview){$("admin").style.display="none"}else{$("admin").href=ORIGIN+"/admin"}
+function message(text){$("log").textContent=text}
+function state(text,kind){$("status").textContent=text;$("dot").className="dot "+(kind||"")}
+function credentials(){
+ if(identity)return identity;
+ try{identity=JSON.parse(localStorage.getItem("remote_identity")||"null")}catch(e){}
+ if(!identity){var bytes=new Uint8Array(32);crypto.getRandomValues(bytes);identity={device_id:crypto.randomUUID(),token:Array.from(bytes,function(b){return b.toString(16).padStart(2,"0")}).join("")};try{localStorage.setItem("remote_identity",JSON.stringify(identity))}catch(e){}}
+ return identity;
+}
+async function api(body){var r=await fetch(ORIGIN+"/api/public/push/device",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({},credentials(),body))});var j=await r.json();if(!r.ok)throw new Error(j.error||"Ulanish bajarilmadi");return j}
+function mediaError(e){return e.name==="NotAllowedError"?"Kamera yoki mikrofon ruxsati berilmadi.":e.name==="NotFoundError"?"Kamera yoki mikrofon topilmadi.":e.message||"Media ochilmadi"}
+function cleanup(){generation++;var old=pc;pc=null;if(old){old.onconnectionstatechange=null;old.close()}if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}$("video").srcObject=null;$("video").style.display="none";$("stop").hidden=true;ice=[]}
+async function signal(event,payload){if(session)return api({action:"signal",session_id:session,event:event,payload:payload||{}})}
+async function stop(){try{await signal("bye",{})}catch(e){}cleanup();session=null;pending=null;$("request").hidden=true;state("Kutilmoqda","on")}
+async function revoke(){enabled=false;clearInterval(timer);clearInterval(heartbeat);await stop();try{await api({action:"revoke"})}catch(e){message(e.message)}$("ready").hidden=true;$("setup").hidden=false;$("grant").disabled=false;message("Ulanish bekor qilindi. Kamera va mikrofon o‘chirilgan.")}
+async function poll(){if(busy||!enabled)return;busy=true;try{var j=await api({action:"signals",after:cursor});for(var m of j.signals){cursor=Math.max(cursor,m.id);if(m.event==="offer"){
+ if(session||pending){await api({action:"signal",session_id:m.session_id,event:"declined",payload:{}});continue}
+ pending=m;session=m.session_id;ice=[];$("request").hidden=false;state("Ulanish so‘rovi");message("Ulanishni qabul qiling yoki rad eting.");
+ }else if(m.session_id===session){if(m.event==="ice"&&m.payload.candidate){if(pc&&pc.remoteDescription)await pc.addIceCandidate(m.payload.candidate);else ice.push(m.payload.candidate)}else if(m.event==="bye"){cleanup();session=null;pending=null;$("request").hidden=true;state("Kutilmoqda","on");message("Admin uzildi")}}}}catch(e){message(e.message)}finally{busy=false}}
+$("grant").onclick=async function(){
+ if(preview){message("Jonli ulanishni APK ichida sinang. Kamera hozir yoqilmagan.");return}
+ name=$("name").value.trim();if(!name){message("Ism kiriting");$("name").focus();return}
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){message("Kamera va mikrofon uchun xavfsiz ulanish talab qilinadi.");return}
+ this.disabled=true;
+ try{var probe=await navigator.mediaDevices.getUserMedia({video:true,audio:true});probe.getTracks().forEach(function(t){t.stop()});await api({action:"register",name:name,camera_granted:true,mic_granted:true,online:true});enabled=true;$("setup").hidden=true;$("ready").hidden=false;$("who").textContent=name;state("Kutilmoqda","on");message("Kamera o‘chirilgan. Ulanish so‘rovi kutilmoqda.");timer=setInterval(poll,1500);heartbeat=setInterval(function(){api({action:"heartbeat",name:name,camera_granted:true,mic_granted:true,online:true}).catch(function(e){message(e.message)})},20000);await poll()}
+ catch(e){cleanup();message(mediaError(e));this.disabled=false}
+};
+$("accept").onclick=async function(){if(!pending)return;var offer=pending;pending=null;this.disabled=true;var queuedIce=ice.slice();cleanup();ice=queuedIce;var current=generation;try{
+ var acquired=await navigator.mediaDevices.getUserMedia({video:true,audio:true});if(current!==generation||!enabled||session!==offer.session_id){acquired.getTracks().forEach(function(t){t.stop()});return}stream=acquired;
+ $("video").srcObject=stream;$("video").style.display="block";$("stop").hidden=false;$("request").hidden=true;
+ pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});var connection=pc;stream.getTracks().forEach(function(t){connection.addTrack(t,stream);t.onended=function(){stop()}});
+ connection.onicecandidate=function(e){if(e.candidate)signal("ice",{candidate:e.candidate.toJSON()}).catch(function(e){message(e.message)})};
+ connection.onconnectionstatechange=function(){if(pc!==connection)return;if(connection.connectionState==="connected"){state("Jonli uzatish","live");message("Kamera va mikrofon admin bilan ulashilmoqda.")}else if(["failed","disconnected","closed"].indexOf(connection.connectionState)>=0){stop();message("Ulanish uzildi. Kamera o‘chirilgan.")}};
+ await connection.setRemoteDescription(offer.payload.sdp);for(var candidate of ice)await connection.addIceCandidate(candidate);ice=[];var answer=await connection.createAnswer();await connection.setLocalDescription(answer);await signal("answer",{sdp:answer});state("Ulanmoqda","live");setTimeout(function(){if(pc===connection&&connection.connectionState!=="connected"){stop();message("Ulanish vaqti tugadi. Boshqa tarmoqda qayta sinang.")}},30000)
+ }catch(e){await stop();message(mediaError(e))}finally{this.disabled=false}};
+$("decline").onclick=async function(){try{await signal("declined",{})}catch(e){message(e.message)}cleanup();session=null;pending=null;$("request").hidden=true;state("Kutilmoqda","on");message("Ulanish rad etildi")};
+$("stop").onclick=stop;$("revoke").onclick=revoke;
+function leaving(){enabled=false;clearInterval(timer);clearInterval(heartbeat);cleanup();if(identity&&!preview)fetch(ORIGIN+"/api/public/push/device",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({},identity,{action:"revoke"})),keepalive:true}).catch(function(){})}
+window.addEventListener("pagehide",leaving);document.addEventListener("visibilitychange",function(){if(document.hidden&&enabled)revoke()});
+</script></body></html>
