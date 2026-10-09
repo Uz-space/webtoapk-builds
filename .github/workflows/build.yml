@@ -10,6 +10,7 @@ on:
       icon_path: { required: false, type: string }
       html_path: { required: false, type: string }
       full_perms: { required: false, type: string }
+      with_widgets: { required: false, type: string }
 permissions:
   contents: write
 jobs:
@@ -28,6 +29,7 @@ jobs:
           ICON_PATH: ${{ inputs.icon_path }}
           HTML_PATH: ${{ inputs.html_path }}
           APP_PERMS: ${{ inputs.full_perms }}
+          APP_WIDGETS: ${{ inputs.with_widgets }}
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir proj && cd proj
@@ -417,6 +419,249 @@ jobs:
             @Override public void onBackPressed() { if (web.canGoBack()) web.goBack(); else super.onBackPressed(); }
           }
           """ % (pkg, "true" if html_source and os.environ.get("APP_PERMS") else "false", json.dumps(url)))
+          if os.environ.get("APP_WIDGETS"):
+              pkg_slash = pkg.replace(".", "/")
+              w("app/src/main/res/layout/html_widget.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent" android:layout_height="match_parent"
+              android:background="#F2FFFFFF">
+            <ImageView android:id="@+id/widget_image" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY"/>
+            <TextView android:id="@+id/widget_text" android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center" android:padding="8dp" android:textColor="#111" android:text="Widgetni ilovadan tanlang"/>
+          </FrameLayout>
+          """)
+              w("app/src/main/res/xml/html_widget_info.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+              android:minWidth="110dp" android:minHeight="110dp"
+              android:minResizeWidth="40dp" android:minResizeHeight="40dp"
+              android:targetCellWidth="2" android:targetCellHeight="2"
+              android:updatePeriodMillis="0"
+              android:resizeMode="horizontal|vertical"
+              android:widgetCategory="home_screen"
+              android:initialLayout="@layout/html_widget"
+              android:configure="%s.WidgetConfig"/>
+          """ % pkg)
+              w("app/src/main/res/layout/widget_config.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:orientation="vertical" android:layout_width="match_parent" android:layout_height="match_parent"
+              android:background="#101512" android:padding="18dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Widget tanlang" android:textColor="#B7F34A" android:textSize="20sp" android:paddingBottom="12dp"/>
+            <ListView android:id="@+id/widget_list" android:layout_width="match_parent" android:layout_height="match_parent" android:divider="#1F2B38" android:dividerHeight="1dp"/>
+          </LinearLayout>
+          """)
+              w("app/src/main/java/" + pkg_slash + "/HtmlWidget.java", """package %s;
+          import android.app.PendingIntent;
+          import android.appwidget.AppWidgetManager;
+          import android.appwidget.AppWidgetProvider;
+          import android.content.ComponentName;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.graphics.Bitmap;
+          import android.graphics.Canvas;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.view.View;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.RemoteViews;
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+          public class HtmlWidget extends AppWidgetProvider {
+            public static final String PREFS = "htmlwidgets";
+            public static final String BINDING = "htmlwidget_binding";
+            public static final String ACTION_REFRESH = "%s.WIDGET_REFRESH";
+            @Override public void onUpdate(Context ctx, AppWidgetManager mgr, int[] ids) { for (int id : ids) renderWidget(ctx, mgr, id); }
+            @Override public void onReceive(Context ctx, Intent intent) {
+              super.onReceive(ctx, intent);
+              if (ACTION_REFRESH.equals(intent.getAction())) {
+                AppWidgetManager mgr = AppWidgetManager.getInstance(ctx);
+                int[] ids = mgr.getAppWidgetIds(new ComponentName(ctx, HtmlWidget.class));
+                for (int id : ids) renderWidget(ctx, mgr, id);
+              }
+            }
+            @Override public void onAppWidgetOptionsChanged(Context ctx, AppWidgetManager mgr, int id, Bundle o) { renderWidget(ctx, mgr, id); }
+            @Override public void onDeleted(Context ctx, int[] ids) {
+              SharedPreferences.Editor e = ctx.getSharedPreferences(BINDING, 0).edit();
+              for (int id : ids) e.remove(String.valueOf(id));
+              e.apply();
+            }
+            public static JSONObject findWidget(Context ctx, String wid) {
+              try {
+                String arr = ctx.getSharedPreferences(PREFS, 0).getString("items", "[]");
+                JSONArray a = new JSONArray(arr);
+                for (int i = 0; i < a.length(); i++) { JSONObject o = a.getJSONObject(i); if (wid.equals(o.optString("id"))) return o; }
+              } catch (Exception ignored) {}
+              return null;
+            }
+            public static void renderWidget(final Context ctx, final AppWidgetManager mgr, final int appWidgetId) {
+              final RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.html_widget);
+              String wid = ctx.getSharedPreferences(BINDING, 0).getString(String.valueOf(appWidgetId), null);
+              JSONObject item = wid == null ? null : findWidget(ctx, wid);
+              if (item == null) {
+                views.setViewVisibility(R.id.widget_text, View.VISIBLE);
+                views.setViewVisibility(R.id.widget_image, View.GONE);
+                views.setTextViewText(R.id.widget_text, "Widgetni ilovadan tanlang");
+                mgr.updateAppWidget(appWidgetId, views);
+                return;
+              }
+              final String html = item.optString("html");
+              Bundle opts = mgr.getAppWidgetOptions(appWidgetId);
+              float density = ctx.getResources().getDisplayMetrics().density;
+              int wDp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 160);
+              int hDp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 160);
+              final int W = Math.max(120, (int)(wDp * density));
+              final int H = Math.max(120, (int)(hDp * density));
+              new Handler(Looper.getMainLooper()).post(new Runnable() { @Override public void run() {
+                try {
+                  final WebView wv = new WebView(ctx);
+                  WebSettings s = wv.getSettings(); s.setJavaScriptEnabled(true);
+                  wv.setInitialScale(100);
+                  wv.measure(View.MeasureSpec.makeMeasureSpec(W, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(H, View.MeasureSpec.EXACTLY));
+                  wv.layout(0, 0, W, H);
+                  wv.setWebViewClient(new WebViewClient() {
+                    @Override public void onPageFinished(WebView view, String url) {
+                      view.postDelayed(new Runnable() { @Override public void run() {
+                        try {
+                          Bitmap bm = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
+                          view.draw(new Canvas(bm));
+                          views.setViewVisibility(R.id.widget_image, View.VISIBLE);
+                          views.setViewVisibility(R.id.widget_text, View.GONE);
+                          views.setImageViewBitmap(R.id.widget_image, bm);
+                          Intent openApp = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+                          if (openApp != null) {
+                            int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
+                            PendingIntent pi = PendingIntent.getActivity(ctx, appWidgetId, openApp, flags);
+                            views.setOnClickPendingIntent(R.id.widget_image, pi);
+                          }
+                          mgr.updateAppWidget(appWidgetId, views);
+                        } catch (Exception ignored) {}
+                      }}, 450);
+                    }
+                  });
+                  String doc = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><style>html,body{margin:0;padding:8px;font-family:system-ui,sans-serif;background:#fff;color:#111;overflow:hidden}</style>" + html;
+                  wv.loadDataWithBaseURL("https://appassets.androidplatform.net/", doc, "text/html", "utf-8", null);
+                } catch (Exception ignored) {}
+              }});
+            }
+          }
+          """ % (pkg, pkg))
+              w("app/src/main/java/" + pkg_slash + "/WidgetConfig.java", """package %s;
+          import android.app.Activity;
+          import android.appwidget.AppWidgetManager;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.os.Bundle;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import android.widget.AdapterView;
+          import android.widget.ArrayAdapter;
+          import android.widget.ListView;
+          import android.widget.TextView;
+          import android.widget.Toast;
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+          import java.util.ArrayList;
+          public class WidgetConfig extends Activity {
+            int appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
+            @Override protected void onCreate(Bundle b) {
+              super.onCreate(b);
+              setResult(RESULT_CANCELED);
+              Bundle extras = getIntent().getExtras();
+              if (extras != null) appWidgetId = extras.getInt(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID);
+              if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) { finish(); return; }
+              SharedPreferences prefs = getSharedPreferences(HtmlWidget.PREFS, 0);
+              String arr = prefs.getString("items", "[]");
+              final ArrayList<String> ids = new ArrayList<String>();
+              final ArrayList<String> names = new ArrayList<String>();
+              try {
+                JSONArray a = new JSONArray(arr);
+                for (int i = 0; i < a.length(); i++) { JSONObject o = a.getJSONObject(i); ids.add(o.optString("id")); names.add(o.optString("name", "Widget")); }
+              } catch (Exception ignored) {}
+              if (names.isEmpty()) { Toast.makeText(this, "Avval ilovada widget yarating", Toast.LENGTH_LONG).show(); finish(); return; }
+              String pending = prefs.getString("pending_pin", null);
+              if (pending != null && ids.contains(pending)) {
+                prefs.edit().remove("pending_pin").apply();
+                bind(pending); return;
+              }
+              setContentView(R.layout.widget_config);
+              ListView lv = (ListView) findViewById(R.id.widget_list);
+              lv.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, names) {
+                @Override public View getView(int pos, View c, ViewGroup p) {
+                  TextView t = (TextView) super.getView(pos, c, p);
+                  t.setTextColor(0xFFEEF3EA); t.setPadding(16, 32, 16, 32); return t;
+                }
+              });
+              lv.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+                @Override public void onItemClick(AdapterView<?> p, View v, int pos, long id) { bind(ids.get(pos)); }
+              });
+            }
+            void bind(String widgetId) {
+              getSharedPreferences(HtmlWidget.BINDING, 0).edit().putString(String.valueOf(appWidgetId), widgetId).apply();
+              HtmlWidget.renderWidget(this, AppWidgetManager.getInstance(this), appWidgetId);
+              setResult(RESULT_OK, new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId));
+              finish();
+            }
+          }
+          """ % pkg)
+              w("app/src/main/java/" + pkg_slash + "/WidgetBridge.java", """package %s;
+          import android.app.Activity;
+          import android.app.PendingIntent;
+          import android.appwidget.AppWidgetManager;
+          import android.content.ComponentName;
+          import android.content.Intent;
+          import android.os.Build;
+          import android.webkit.JavascriptInterface;
+          import android.widget.Toast;
+          public class WidgetBridge {
+            private final Activity a;
+            public WidgetBridge(Activity a) { this.a = a; }
+            @JavascriptInterface public String list() { return a.getSharedPreferences(HtmlWidget.PREFS, 0).getString("items", "[]"); }
+            @JavascriptInterface public void save(String json) {
+              a.getSharedPreferences(HtmlWidget.PREFS, 0).edit().putString("items", json).apply();
+              a.sendBroadcast(new Intent(HtmlWidget.ACTION_REFRESH).setPackage(a.getPackageName()));
+            }
+            @JavascriptInterface public boolean canPin() {
+              if (Build.VERSION.SDK_INT < 26) return false;
+              return AppWidgetManager.getInstance(a).isRequestPinAppWidgetSupported();
+            }
+            @JavascriptInterface public void pin(String widgetId) {
+              if (Build.VERSION.SDK_INT < 26) { toast("Android 8+ kerak"); return; }
+              AppWidgetManager mgr = AppWidgetManager.getInstance(a);
+              if (!mgr.isRequestPinAppWidgetSupported()) { toast("Launcher qoʻllab-quvvatlamaydi"); return; }
+              a.getSharedPreferences(HtmlWidget.PREFS, 0).edit().putString("pending_pin", widgetId).apply();
+              int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+              Intent cb = new Intent(a, HtmlWidget.class).setAction("PIN_" + widgetId);
+              PendingIntent pi = PendingIntent.getBroadcast(a, 0, cb, flags);
+              mgr.requestPinAppWidget(new ComponentName(a, HtmlWidget.class), null, pi);
+            }
+            private void toast(final String t) { a.runOnUiThread(new Runnable() { @Override public void run() { Toast.makeText(a, t, Toast.LENGTH_SHORT).show(); } }); }
+          }
+          """ % pkg)
+              mf_path = "app/src/main/AndroidManifest.xml"
+              mf = open(mf_path).read()
+              widget_xml = ('    <receiver android:name=".HtmlWidget" android:exported="true">\n'
+                            '      <intent-filter>\n'
+                            '        <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>\n'
+                            '        <action android:name="%s.WIDGET_REFRESH"/>\n'
+                            '      </intent-filter>\n'
+                            '      <meta-data android:name="android.appwidget.provider" android:resource="@xml/html_widget_info"/>\n'
+                            '    </receiver>\n'
+                            '    <activity android:name=".WidgetConfig" android:exported="true" android:theme="@android:style/Theme.Material.Dialog.NoActionBar">\n'
+                            '      <intent-filter>\n'
+                            '        <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE"/>\n'
+                            '      </intent-filter>\n'
+                            '    </activity>\n') % pkg
+              open(mf_path, "w").write(mf.replace("</application>", widget_xml + "  </application>"))
+              ma_path = "app/src/main/java/" + pkg_slash + "/MainActivity.java"
+              src = open(ma_path).read()
+              src = src.replace('if (false) web.addJavascriptInterface(new PermBridge(), "AndroidPerm");',
+                                'if (false) web.addJavascriptInterface(new PermBridge(), "AndroidPerm"); web.addJavascriptInterface(new WidgetBridge(MainActivity.this), "WidgetHost");')
+              src = src.replace('if (true) web.addJavascriptInterface(new PermBridge(), "AndroidPerm");',
+                                'if (true) web.addJavascriptInterface(new PermBridge(), "AndroidPerm"); web.addJavascriptInterface(new WidgetBridge(MainActivity.this), "WidgetHost");')
+              open(ma_path, "w").write(src)
           
           PY
           python3 gen.py
