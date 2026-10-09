@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Silliq Color Picker</title>
+    <style>
+        body {
+            background-color: #333333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: sans-serif;
+        }
+
+        #preview {
+            width: 200px;
+            height: 200px;
+            background-color: rgb(255, 0, 0);
+            border: 3px solid #ffffff;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        .picker-container {
+            position: relative;
+            width: 350px;
+            height: 350px;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 350px;
+            height: 350px;
+            cursor: crosshair;
+        }
+
+        .cursor {
+            position: absolute;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 4px rgba(0,0,0,0.5);
+        }
+
+        #ring-cursor {
+            width: 30px;
+            height: 30px;
+            background-color: rgb(255, 0, 0);
+        }
+
+        #sl-cursor {
+            width: 25px;
+            height: 25px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="preview"></div>
+
+    <div class="picker-container">
+        <canvas id="pickerCanvas"></canvas>
+        <div id="ring-cursor" class="cursor"></div>
+        <div id="sl-cursor" class="cursor"></div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('pickerCanvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const preview = document.getElementById('preview');
+        const ringCursor = document.getElementById('ring-cursor');
+        const slCursor = document.getElementById('sl-cursor');
+
+        // High-DPI (Retina) ekranlar uchun kadr o'tkirligini oshirish
+        const dpr = window.devicePixelRatio || 1;
+        const displayWidth = 350;
+        const displayHeight = 350;
+
+        canvas.width = displayWidth * dpr;
+        canvas.height = displayHeight * dpr;
+        ctx.scale(dpr, dpr);
+
+        const centerX = displayWidth / 2;
+        const centerY = displayHeight / 2;
+        const ringOuterRadius = 140;
+        const ringInnerRadius = 115;
+        const blockRadius = 90;
+
+        let currentHue = 0;
+        let currentBlockX = centerX;
+        let currentBlockY = centerY - 20;
+
+        let isDraggingRing = false;
+        let isDraggingBlock = false;
+
+        // Tashqi halqani Conic Gradient bilan silliq chizish
+        function drawColorRing() {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, ringOuterRadius, 0, Math.PI * 2, false);
+            ctx.arc(centerX, centerY, ringInnerRadius, Math.PI * 2, 0, true);
+            ctx.closePath();
+
+            const conicGrad = ctx.createConicGradient(0, centerX, centerY);
+            for (let i = 0; i <= 360; i += 30) {
+                conicGrad.addColorStop(i / 360, `hsl(${i}, 100%, 50%)`);
+            }
+
+            ctx.fillStyle = conicGrad;
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // Markazdagi aylanani chizish
+        function drawSLBlock(hue) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, blockRadius, 0, Math.PI * 2);
+            ctx.clip();
+
+            // Oqdan rangga
+            const gradH = ctx.createLinearGradient(centerX - blockRadius, centerY, centerX + blockRadius, centerY);
+            gradH.addColorStop(0, '#ffffff');
+            gradH.addColorStop(1, `hsl(${hue}, 100%, 50%)`);
+            ctx.fillStyle = gradH;
+            ctx.fillRect(centerX - blockRadius, centerY - blockRadius, blockRadius * 2, blockRadius * 2);
+
+            // Shaffofdan qoraga
+            const gradV = ctx.createLinearGradient(centerX, centerY - blockRadius, centerX, centerY + blockRadius);
+            gradV.addColorStop(0, 'rgba(0,0,0,0)');
+            gradV.addColorStop(1, '#000000');
+            ctx.fillStyle = gradV;
+            ctx.fillRect(centerX - blockRadius, centerY - blockRadius, blockRadius * 2, blockRadius * 2);
+
+            ctx.restore();
+        }
+
+        function drawPicker() {
+            ctx.clearRect(0, 0, displayWidth, displayHeight);
+            drawColorRing();
+            drawSLBlock(currentHue);
+        }
+
+        function updateColor(x, y, isRingClick) {
+            // Retina ekranda aniq piksel koordinatasini olish
+            const imgData = ctx.getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data;
+            if (imgData[3] > 0) {
+                const rgbColor = `rgb(${imgData[0]}, ${imgData[1]}, ${imgData[2]})`;
+                if (isRingClick) {
+                    ringCursor.style.backgroundColor = rgbColor;
+                } else {
+                    preview.style.backgroundColor = rgbColor;
+                }
+            }
+        }
+
+        function setCursorPositions(ringAngle, blockX, blockY) {
+            if (ringAngle !== null) {
+                const rad = ringAngle * Math.PI / 180;
+                const rRadius = (ringOuterRadius + ringInnerRadius) / 2;
+                ringCursor.style.left = `${centerX + rRadius * Math.cos(rad)}px`;
+                ringCursor.style.top = `${centerY + rRadius * Math.sin(rad)}px`;
+            }
+            if (blockX !== null && blockY !== null) {
+                slCursor.style.left = `${blockX}px`;
+                slCursor.style.top = `${blockY}px`;
+            }
+        }
+
+        function handlePointerDown(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+            const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+
+            const dx = x - centerX;
+            const dy = y - centerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance >= ringInnerRadius && distance <= ringOuterRadius) {
+                isDraggingRing = true;
+                handlePointerMove(e);
+            } else if (distance <= blockRadius) {
+                isDraggingBlock = true;
+                handlePointerMove(e);
+            }
+        }
+
+        function handlePointerMove(e) {
+            if (!isDraggingRing && !isDraggingBlock) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+            const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+            if (!clientX || !clientY) return;
+
+            let x = clientX - rect.left;
+            let y = clientY - rect.top;
+
+            if (isDraggingRing) {
+                let angle = Math.atan2(y - centerY, x - centerX) * 180 / Math.PI;
+                if (angle < 0) angle += 360;
+                currentHue = Math.round(angle);
+                
+                drawPicker();
+                setCursorPositions(currentHue, null, null);
+                updateColor(currentBlockX, currentBlockY, false);
+                
+                const rRad = currentHue * Math.PI / 180;
+                const rRadius = (ringOuterRadius + ringInnerRadius) / 2;
+                updateColor(centerX + rRadius * Math.cos(rRad), centerY + rRadius * Math.sin(rRad), true);
+            } 
+            else if (isDraggingBlock) {
+                const dx = x - centerX;
+                const dy = y - centerY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance > blockRadius) {
+                    x = centerX + (dx / distance) * blockRadius;
+                    y = centerY + (dy / distance) * blockRadius;
+                }
+
+                currentBlockX = x;
+                currentBlockY = y;
+
+                setCursorPositions(null, x, y);
+                updateColor(x, y, false);
+            }
+        }
+
+        function handlePointerUp() {
+            isDraggingRing = false;
+            isDraggingBlock = false;
+        }
+
+        canvas.addEventListener('mousedown', handlePointerDown);
+        window.addEventListener('mousemove', handlePointerMove);
+        window.addEventListener('mouseup', handlePointerUp);
+
+        canvas.addEventListener('touchstart', handlePointerDown);
+        window.addEventListener('touchmove', handlePointerMove);
+        window.addEventListener('touchend', handlePointerUp);
+
+        // Boshlang'ich yuklash
+        drawPicker();
+        setCursorPositions(0, currentBlockX, currentBlockY);
+        updateColor(currentBlockX, currentBlockY, false);
+        const rRadius = (ringOuterRadius + ringInnerRadius) / 2;
+        updateColor(centerX + rRadius, centerY, true);
+    </script>
+</body>
+</html>
