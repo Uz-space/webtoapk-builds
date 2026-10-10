@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIN</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background: hsl(0, 0%, 50%);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #1a1a1a;
+            overflow: hidden;
+        }
+
+        .passcode-container {
+            width: 100%;
+            max-width: 400px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 50px 24px 30px 24px;
+            position: absolute;
+            top: 0;
+        }
+
+        .header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 20px;
+            flex-shrink: 0;
+        }
+
+        .app-logo {
+            width: 56px;
+            height: 56px;
+            background: #007aff;
+            border-radius: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 26px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            box-shadow: 0 10px 20px rgba(0, 122, 255, 0.2);
+        }
+
+        .title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #ffffff;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #f1f3f5;
+            margin-bottom: 24px;
+        }
+
+        .dots {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+        }
+
+        .dot {
+            width: 14px;
+            height: 14px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+            background: transparent;
+        }
+
+        .dot.filled {
+            background: #ffffff;
+            transform: scale(1.1);
+        }
+
+        .keypad {
+            display: grid;
+            grid-template-columns: repeat(3, 72px);
+            gap: 12px 20px;
+            justify-content: center;
+            margin-bottom: 10px;
+            flex-shrink: 0;
+        }
+
+        .key {
+            width: 72px;
+            height: 72px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.1s;
+        }
+
+        .key:active {
+            background: rgba(255, 255, 255, 0.4);
+            transform: scale(0.93);
+        }
+
+        .key-num {
+            font-size: 26px;
+            font-weight: 500;
+            color: #ffffff;
+            line-height: 1;
+        }
+
+        .shake {
+            animation: shake 0.4s ease-in-out;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-8px); }
+            40%, 80% { transform: translateX(8px); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="passcode-container" id="passcodeContainer">
+    <div class="header">
+        <div class="app-logo">🔒</div>
+        <div class="title">PIN kiriting</div>
+        <div class="subtitle">Parolni yozing</div>
+        
+        <div class="dots" id="dotsContainer">
+            <div class="dot"></div>
+            <div class="dot"></div>
+            <div class="dot"></div>
+            <div class="dot"></div>
+        </div>
+    </div>
+
+    <div class="keypad" id="keypad">
+        <div class="key" data-num="1"><span class="key-num">1</span></div>
+        <div class="key" data-num="2"><span class="key-num">2</span></div>
+        <div class="key" data-num="3"><span class="key-num">3</span></div>
+        <div class="key" data-num="4"><span class="key-num">4</span></div>
+        <div class="key" data-num="5"><span class="key-num">5</span></div>
+        <div class="key" data-num="6"><span class="key-num">6</span></div>
+        <div class="key" data-num="7"><span class="key-num">7</span></div>
+        <div class="key" data-num="8"><span class="key-num">8</span></div>
+        <div class="key" data-num="9"><span class="key-num">9</span></div>
+        <div style="grid-column: 2;" class="key" data-num="0"><span class="key-num">0</span></div>
+    </div>
+</div>
+
+<script>
+    const CORRECT_PIN = "1234";
+    let enteredPin = "";
+
+    const dots = document.querySelectorAll('.dot');
+    const keypad = document.getElementById('keypad');
+    const passcodeContainer = document.getElementById('passcodeContainer');
+
+    keypad.getElementById = function(id) { return document.getElementById(id); };
+
+    keypad.addEventListener('click', (e) => {
+        const key = e.target.closest('.key');
+        if (!key) return;
+
+        if (key.hasAttribute('data-num')) {
+            const num = key.getAttribute('data-num');
+            if (enteredPin.length < 4) {
+                enteredPin += num;
+                updateDots();
+
+                if (enteredPin.length === 4) {
+                    checkPin();
+                }
+            }
+        }
+    });
+
+    function updateDots() {
+        dots.forEach((dot, index) => {
+            if (index < enteredPin.length) {
+                dot.classList.add('filled');
+            } else {
+                dot.classList.remove('filled');
+            }
+        });
+    }
+
+    function checkPin() {
+        if (enteredPin === CORRECT_PIN) {
+            // To'g'ri terilganda ham hech narsa o'zgarmaydi (asosiy oynaga o'tmaydi)
+            setTimeout(() => {
+                enteredPin = "";
+                updateDots();
+            }, 300);
+        } else {
+            // Xato terilganda faqat qimirlab (shake) joyiga keladi va tozalanadi
+            passcodeContainer.classList.add('shake');
+            setTimeout(() => {
+                passcodeContainer.classList.remove('shake');
+                enteredPin = "";
+                updateDots();
+            }, 500);
+        }
+    }
+</script>
+
+</body>
+</html>
