@@ -9,6 +9,8 @@ on:
       build_id: { required: true, type: string }
       icon_path: { required: false, type: string }
       html_path: { required: false, type: string }
+      full_perms: { required: false, type: string }
+      with_widgets: { required: false, type: string }
 permissions:
   contents: write
 jobs:
@@ -26,6 +28,8 @@ jobs:
           APP_PKG: ${{ inputs.package_id }}
           ICON_PATH: ${{ inputs.icon_path }}
           HTML_PATH: ${{ inputs.html_path }}
+          APP_PERMS: ${{ inputs.full_perms }}
+          APP_WIDGETS: ${{ inputs.with_widgets }}
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir proj && cd proj
@@ -35,14 +39,19 @@ jobs:
             python3 -m pip install --quiet Pillow
           fi
           if [ -n "$HTML_PATH" ]; then
-            mkdir -p app/src/main/assets
-            curl -L --fail               -H "Accept: application/vnd.github.raw+json"               -H "Authorization: Bearer $GH_TOKEN"               -H "X-GitHub-Api-Version: 2022-11-28"               "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/$HTML_PATH"               -o app/src/main/assets/index.html
+            curl -L --fail               -H "Accept: application/vnd.github.raw+json"               -H "Authorization: Bearer $GH_TOKEN"               -H "X-GitHub-Api-Version: 2022-11-28"               "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/$HTML_PATH"               -o site.html
+            export APP_HTML="$PWD/site.html"
           fi
           cat > gen.py <<'PY'
           
           import os, json
           from xml.sax.saxutils import escape
           url = os.environ["APP_URL"]; name = os.environ["APP_NAME"]; pkg = os.environ["APP_PKG"]
+          html_source = os.environ.get("APP_HTML")
+          if html_source and os.path.exists(html_source):
+              os.makedirs("app/src/main/assets", exist_ok=True)
+              open("app/src/main/assets/index.html", "wb").write(open(html_source, "rb").read())
+              url = "https://appassets.androidplatform.net/assets/index.html"
           def w(p, s):
               os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
               open(p, "w").write(s)
@@ -84,10 +93,29 @@ jobs:
                       folder = "app/src/main/res/mipmap-" + density
                       os.makedirs(folder, exist_ok=True)
                       source.resize((size, size), Image.Resampling.LANCZOS).save(folder + "/ic_launcher.png")
+          EXTRA_PERMS = """CAMERA RECORD_AUDIO ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION ACCESS_BACKGROUND_LOCATION
+          READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE READ_MEDIA_IMAGES READ_MEDIA_VIDEO READ_MEDIA_AUDIO
+          POST_NOTIFICATIONS VIBRATE WAKE_LOCK FLASHLIGHT
+          READ_CONTACTS WRITE_CONTACTS GET_ACCOUNTS READ_CALENDAR WRITE_CALENDAR
+          CALL_PHONE READ_PHONE_STATE READ_PHONE_NUMBERS READ_CALL_LOG ANSWER_PHONE_CALLS
+          SEND_SMS READ_SMS RECEIVE_SMS
+          BODY_SENSORS ACTIVITY_RECOGNITION HIGH_SAMPLING_RATE_SENSORS
+          BLUETOOTH BLUETOOTH_ADMIN BLUETOOTH_CONNECT BLUETOOTH_SCAN NFC
+          ACCESS_NETWORK_STATE ACCESS_WIFI_STATE CHANGE_WIFI_STATE INTERNET
+          MODIFY_AUDIO_SETTINGS RECEIVE_BOOT_COMPLETED FOREGROUND_SERVICE REQUEST_INSTALL_PACKAGES""".split()
+          perm_lines = ""
+          if os.environ.get("APP_PERMS"):
+              seen = []
+              for p in EXTRA_PERMS:
+                  if p not in seen and p != "INTERNET":
+                      seen.append(p)
+              perm_lines = "".join('  <uses-permission android:name="android.permission.%s" tools:ignore="ScopedStorage"/>\n' % p for p in seen)
+              perm_lines += '  <uses-feature android:name="android.hardware.camera" android:required="false"/>\n'
           w("app/src/main/AndroidManifest.xml", """<?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:tools="http://schemas.android.com/tools">
             <uses-permission android:name="android.permission.INTERNET"/>
-            <application android:label="@string/app_name"%s android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true"
+          %s  <application android:label="@string/app_name"%s android:usesCleartextTraffic="true"
                 android:theme="@style/AppTheme">
               <activity android:name=".MainActivity" android:exported="true"
                   android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode">
@@ -98,7 +126,7 @@ jobs:
               </activity>
             </application>
           </manifest>
-          """ % (' android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"' if icon_source else ''))
+          """ % (perm_lines, ' android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"' if icon_source else ''))
           w("app/src/main/java/" + pkg.replace(".", "/") + "/MainActivity.java", """package %s;
           import android.app.Activity;
           import android.graphics.Color;
@@ -111,9 +139,32 @@ jobs:
           import android.view.ViewGroup;
           import android.view.WindowManager;
           import android.webkit.WebChromeClient;
+          import android.webkit.PermissionRequest;
+          import android.webkit.GeolocationPermissions;
+          import android.webkit.ValueCallback;
+          import android.webkit.JavascriptInterface;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.database.Cursor;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Vibrator;
+          import android.hardware.camera2.CameraManager;
+          import android.provider.CalendarContract;
+          import android.provider.CallLog;
+          import android.provider.ContactsContract;
+          import android.provider.Settings;
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.widget.Toast;
+          import org.json.JSONObject;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
+          import java.util.ArrayList;
           import android.view.WindowInsets;
           import android.view.WindowInsetsController;
           import android.widget.FrameLayout;
@@ -122,6 +173,102 @@ jobs:
           import android.widget.ProgressBar;
           import android.widget.TextView;
           public class MainActivity extends Activity {
+            private ValueCallback<Uri[]> fileCb;
+            private PermissionRequest pendingMedia;
+            private void grantMedia() {
+              if (pendingMedia == null) return;
+              ArrayList<String> allowed = new ArrayList<String>();
+              for (String resource : pendingMedia.getResources()) {
+                String permission = resource.equals(PermissionRequest.RESOURCE_VIDEO_CAPTURE) ? "android.permission.CAMERA"
+                    : resource.equals(PermissionRequest.RESOURCE_AUDIO_CAPTURE) ? "android.permission.RECORD_AUDIO" : null;
+                if (permission != null && (Build.VERSION.SDK_INT < 23 || checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED)) allowed.add(resource);
+              }
+              if (allowed.isEmpty()) pendingMedia.deny(); else pendingMedia.grant(allowed.toArray(new String[0]));
+              pendingMedia = null;
+            }
+            private void js(final String code) {
+              runOnUiThread(new Runnable() { @Override public void run() { if (web != null) web.evaluateJavascript(code, null); } });
+            }
+            @Override protected void onActivityResult(int req, int res, Intent data) {
+              super.onActivityResult(req, res, data);
+              if (req == 77 && fileCb != null) {
+                fileCb.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data));
+                fileCb = null;
+              }
+            }
+            @Override public void onRequestPermissionsResult(int req, String[] perms, int[] results) {
+              super.onRequestPermissionsResult(req, perms, results);
+              if (req == 6) { grantMedia(); return; }
+              for (int i = 0; i < perms.length; i++) {
+                js("window.onAndroidPerm&&window.onAndroidPerm(" + JSONObject.quote(perms[i]) + "," + (i < results.length && results[i] == PackageManager.PERMISSION_GRANTED) + ")");
+              }
+            }
+            // Native bridge used by the "Android ruxsatlari" template; harmless elsewhere.
+            class PermBridge {
+              @JavascriptInterface public int sdk() { return Build.VERSION.SDK_INT; }
+              @JavascriptInterface public String device() { return Build.MANUFACTURER + " " + Build.MODEL + " (Android " + Build.VERSION.RELEASE + ")"; }
+              @JavascriptInterface public boolean has(String p) {
+                if (Build.VERSION.SDK_INT < 23) return true;
+                return checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED;
+              }
+              @JavascriptInterface public void request(final String p) {
+                if (Build.VERSION.SDK_INT < 23) { js("window.onAndroidPerm&&window.onAndroidPerm(" + JSONObject.quote(p) + ",true)"); return; }
+                runOnUiThread(new Runnable() { @Override public void run() { requestPermissions(new String[]{p}, 5); } });
+              }
+              @JavascriptInterface public void vibrate(int ms) {
+                try { Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE); if (v != null) v.vibrate(ms); } catch (Exception ignored) {}
+              }
+              @JavascriptInterface public void toast(final String t) {
+                runOnUiThread(new Runnable() { @Override public void run() { Toast.makeText(MainActivity.this, t, Toast.LENGTH_SHORT).show(); } });
+              }
+              @JavascriptInterface public String torch(boolean on) {
+                try {
+                  if (Build.VERSION.SDK_INT < 23) return "Android 6+ kerak";
+                  CameraManager cm = (CameraManager) getSystemService(CAMERA_SERVICE);
+                  cm.setTorchMode(cm.getCameraIdList()[0], on);
+                  return "ok";
+                } catch (Exception e) { return e.getMessage(); }
+              }
+              @JavascriptInterface public String count(String kind) {
+                try {
+                  Uri u = kind.equals("contacts") ? ContactsContract.Contacts.CONTENT_URI
+                    : kind.equals("calls") ? CallLog.Calls.CONTENT_URI
+                    : kind.equals("calendar") ? CalendarContract.Events.CONTENT_URI
+                    : Uri.parse("content://sms/inbox");
+                  Cursor c = getContentResolver().query(u, null, null, null, null);
+                  if (c == null) return "0";
+                  int n = c.getCount(); c.close();
+                  return String.valueOf(n);
+                } catch (Exception e) { return "Xato: " + e.getMessage(); }
+              }
+              @JavascriptInterface public void call(String num) {
+                try { startActivity(new Intent(Intent.ACTION_CALL, Uri.parse("tel:" + num))); } catch (Exception e) { toast(e.getMessage()); }
+              }
+              @JavascriptInterface public void notif(String title, String text) {
+                try {
+                  NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                  Notification.Builder nb;
+                  if (Build.VERSION.SDK_INT >= 26) {
+                    nm.createNotificationChannel(new NotificationChannel("main", "Asosiy", NotificationManager.IMPORTANCE_HIGH));
+                    nb = new Notification.Builder(MainActivity.this, "main");
+                  } else nb = new Notification.Builder(MainActivity.this);
+                  android.graphics.drawable.Drawable d = getPackageManager().getApplicationIcon(getPackageName());
+                  android.graphics.Bitmap bm = android.graphics.Bitmap.createBitmap(192, 192, android.graphics.Bitmap.Config.ARGB_8888);
+                  android.graphics.Canvas cv = new android.graphics.Canvas(bm); d.setBounds(0, 0, 192, 192); d.draw(cv);
+                  nm.notify(1, nb.setSmallIcon(getApplicationInfo().icon).setLargeIcon(bm).setContentTitle(title).setContentText(text).setAutoCancel(true).build());
+                } catch (Exception e) { toast(e.getMessage()); }
+              }
+              @JavascriptInterface public void settings(String action) {
+                try {
+                  Intent i = new Intent(action);
+                  if (!action.equals(Settings.ACTION_SETTINGS) && !action.equals(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                    i.setData(Uri.parse("package:" + getPackageName()));
+                  startActivity(i);
+                } catch (Exception e) {
+                  try { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); } catch (Exception ignored) {}
+                }
+              }
+            }
             private WebView web;
             private View splash;
             private long splashStartedAt;
@@ -138,57 +285,14 @@ jobs:
             }
             private View createSplash() {
               FrameLayout screen = new FrameLayout(this);
-              screen.setBackgroundColor(Color.rgb(16, 21, 18));
-          
-              LinearLayout glass = new LinearLayout(this);
-              glass.setOrientation(LinearLayout.VERTICAL);
-              glass.setGravity(Gravity.CENTER);
-              glass.setPadding(dp(28), dp(30), dp(28), dp(26));
-              glass.setElevation(dp(18));
-              GradientDrawable panel = new GradientDrawable();
-              panel.setShape(GradientDrawable.RECTANGLE);
-              panel.setCornerRadius(dp(28));
-              panel.setColor(Color.argb(205, 43, 55, 48));
-              panel.setStroke(dp(1), Color.argb(105, 255, 255, 255));
-              glass.setBackground(panel);
-          
+              screen.setBackgroundColor(Color.BLACK);
               ImageView icon = new ImageView(this);
-              icon.setImageDrawable(getApplicationInfo().loadIcon(getPackageManager()));
-              icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
-              GradientDrawable iconFrame = new GradientDrawable();
-              iconFrame.setShape(GradientDrawable.RECTANGLE);
-              iconFrame.setCornerRadius(dp(22));
-              iconFrame.setColor(Color.argb(45, 255, 255, 255));
-              icon.setBackground(iconFrame);
-              icon.setClipToOutline(true);
-              glass.addView(icon, new LinearLayout.LayoutParams(dp(88), dp(88)));
-          
-              TextView title = splashText(getString(R.string.app_name), 24, Color.WHITE);
-              title.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
-              LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
-                  ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-              titleParams.topMargin = dp(18);
-              glass.addView(title, titleParams);
-          
-              ProgressBar progress = new ProgressBar(this, null, android.R.attr.progressBarStyleSmall);
-              if (android.os.Build.VERSION.SDK_INT >= 21) progress.getIndeterminateDrawable().setTint(Color.rgb(183, 243, 74));
-              LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(dp(30), dp(30));
-              progressParams.topMargin = dp(18);
-              glass.addView(progress, progressParams);
-          
-              TextView loading = splashText("Yuklanmoqda…", 13, Color.argb(190, 255, 255, 255));
-              LinearLayout.LayoutParams loadingParams = new LinearLayout.LayoutParams(
-                  ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-              loadingParams.topMargin = dp(10);
-              glass.addView(loading, loadingParams);
-          
-              // Near-fullscreen glass panel: fills the screen except a thin margin,
-              // so only its border lines show around the edges.
-              int margin = dp(14);
-              FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
-                  FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER);
-              panelParams.setMargins(margin, margin, margin, margin);
-              screen.addView(glass, panelParams);
+              android.graphics.drawable.Drawable appIcon = null;
+              try { appIcon = getApplicationInfo().loadIcon(getPackageManager()); } catch (Exception ignored) {}
+              if (appIcon != null) icon.setImageDrawable(appIcon);
+              icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+              FrameLayout.LayoutParams iconParams = new FrameLayout.LayoutParams(dp(144), dp(144), Gravity.CENTER);
+              screen.addView(icon, iconParams);
               return screen;
             }
             private void dismissSplash() {
@@ -208,6 +312,7 @@ jobs:
               }, wait);
             }
             private void showImmersive() {
+              try {
               if (android.os.Build.VERSION.SDK_INT >= 30) {
                 // Newer Android ignores the legacy flags, so use WindowInsetsController
                 // to hide the status and navigation bars and draw edge to edge.
@@ -231,6 +336,7 @@ jobs:
                     | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                     | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
               }
+              } catch (Exception ignored) {}
             }
             @Override protected void onCreate(Bundle b) {
               super.onCreate(b);
@@ -242,81 +348,320 @@ jobs:
                     : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
                 getWindow().setAttributes(params);
               }
-              try { showImmersive(); } catch (Throwable ignored) {}
-              try {
-                web = new WebView(this);
-              } catch (Throwable t) {
-                TextView msg = splashText("Telefoningizda Android System WebView o'rnatilmagan yoki yangilanmoqda. Play Market orqali yangilab, qayta oching.", 16, Color.WHITE);
-                msg.setBackgroundColor(Color.rgb(16, 21, 18));
-                msg.setPadding(dp(24), dp(24), dp(24), dp(24));
-                setContentView(msg);
-                return;
-              }
+              showImmersive();
+              web = new WebView(this);
               WebSettings s = web.getSettings();
               s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setDatabaseEnabled(true);
-              s.setAllowFileAccess(true); s.setAllowContentAccess(true); s.setAllowFileAccessFromFileURLs(true); s.setAllowUniversalAccessFromFileURLs(true);
-              s.setJavaScriptCanOpenWindowsAutomatically(true);
-              if (android.os.Build.VERSION.SDK_INT >= 21) s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
               s.setLoadWithOverviewMode(true); s.setUseWideViewPort(true); s.setMediaPlaybackRequiresUserGesture(false);
               web.setWebViewClient(new WebViewClient() {
+                @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                  Uri uri = request.getUrl();
+                  if ("https".equals(uri.getScheme()) && "appassets.androidplatform.net".equals(uri.getHost()) && "/assets/index.html".equals(uri.getPath())) {
+                    try { return new WebResourceResponse("text/html", "UTF-8", getAssets().open("index.html")); }
+                    catch (Exception ignored) { return new WebResourceResponse("text/plain", "UTF-8", new java.io.ByteArrayInputStream("Page unavailable".getBytes())); }
+                  }
+                  return super.shouldInterceptRequest(view, request);
+                }
                 @Override public void onPageFinished(WebView view, String loadedUrl) {
                   super.onPageFinished(view, loadedUrl);
                   dismissSplash();
                 }
-                @Override public void onReceivedError(WebView view, int code, String desc, String failingUrl) {
+                @Override public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                  super.onReceivedError(view, errorCode, description, failingUrl);
                   dismissSplash();
                 }
-                @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
-                  // Low-memory phones can kill the page renderer; restart the screen instead of crashing the app.
-                  if (view.getParent() instanceof ViewGroup) ((ViewGroup) view.getParent()).removeView(view);
-                  view.destroy();
-                  if (view == web) { web = null; recreate(); }
+              });
+              if (%s) web.addJavascriptInterface(new PermBridge(), "AndroidPerm");
+              web.setWebChromeClient(new WebChromeClient() {
+                @Override public void onPermissionRequest(final PermissionRequest request) {
+                  runOnUiThread(new Runnable() { @Override public void run() {
+                    if (pendingMedia != null) { request.deny(); return; }
+                    pendingMedia = request;
+                    ArrayList<String> needed = new ArrayList<String>();
+                    for (String resource : request.getResources()) {
+                      String permission = resource.equals(PermissionRequest.RESOURCE_VIDEO_CAPTURE) ? "android.permission.CAMERA"
+                          : resource.equals(PermissionRequest.RESOURCE_AUDIO_CAPTURE) ? "android.permission.RECORD_AUDIO" : null;
+                      if (permission != null && Build.VERSION.SDK_INT >= 23 && checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) needed.add(permission);
+                    }
+                    if (needed.isEmpty()) grantMedia(); else requestPermissions(needed.toArray(new String[0]), 6);
+                  } });
+                }
+                @Override public void onPermissionRequestCanceled(PermissionRequest request) { if (pendingMedia == request) pendingMedia = null; }
+                @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                  callback.invoke(origin, true, false);
+                }
+                @Override public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, FileChooserParams params) {
+                  if (fileCb != null) fileCb.onReceiveValue(null);
+                  fileCb = cb;
+                  try { startActivityForResult(params.createIntent(), 77); } catch (Exception e) { fileCb = null; return false; }
                   return true;
                 }
               });
-              web.setWebChromeClient(new WebChromeClient());
               FrameLayout root = new FrameLayout(this);
               root.addView(web, new FrameLayout.LayoutParams(
                   ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-              splashStartedAt = System.currentTimeMillis();
-              splash = createSplash();
-              root.addView(splash, new FrameLayout.LayoutParams(
-                  ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-              setContentView(root);
-              if (b == null || web.restoreState(b) == null) loadStart();
-              // Never leave the loading screen up forever.
-              new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
-                @Override public void run() { dismissSplash(); }
-              }, 10000);
-            }
-            private void loadStart() {
-              String start = %s;
-              String asset = "file:///android_asset/";
-              if (start.startsWith(asset)) {
-                // Embedded template: read it and load with a real https origin so
-                // localStorage and scripts work the same on every Android version.
-                try {
-                  java.io.InputStream in = getAssets().open(start.substring(asset.length()));
-                  java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-                  byte[] buf = new byte[8192]; int n;
-                  while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-                  in.close();
-                  web.loadDataWithBaseURL("https://app.local/", out.toString("UTF-8"), "text/html", "UTF-8", null);
-                  return;
-                } catch (Throwable t) { /* fall back to file URL */ }
+              // Android 12+ already displays the system splash screen. Add our matching
+              // fallback only on older versions so users never see two splash screens.
+              if (android.os.Build.VERSION.SDK_INT < 31) {
+                splashStartedAt = System.currentTimeMillis();
+                splash = createSplash();
+                root.addView(splash, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
               }
-              web.loadUrl(start);
+              setContentView(root);
+              if (b == null || web.restoreState(b) == null) web.loadUrl(%s);
             }
-            @Override protected void onPause() { super.onPause(); if (web != null) web.onPause(); }
-            @Override protected void onResume() { super.onResume(); if (web != null) web.onResume(); }
             @Override public void onWindowFocusChanged(boolean hasFocus) {
               super.onWindowFocusChanged(hasFocus);
-              if (hasFocus) { try { showImmersive(); } catch (Throwable ignored) {} }
+              if (hasFocus) showImmersive();
             }
-            @Override protected void onSaveInstanceState(Bundle o) { super.onSaveInstanceState(o); if (web != null) web.saveState(o); }
-            @Override public void onBackPressed() { if (web != null && web.canGoBack()) web.goBack(); else super.onBackPressed(); }
+            @Override protected void onSaveInstanceState(Bundle o) { super.onSaveInstanceState(o); web.saveState(o); }
+            @Override public void onBackPressed() { if (web.canGoBack()) web.goBack(); else super.onBackPressed(); }
           }
-          """ % (pkg, json.dumps(url)))
+          """ % (pkg, "true" if html_source and os.environ.get("APP_PERMS") else "false", json.dumps(url)))
+          if os.environ.get("APP_WIDGETS"):
+              pkg_slash = pkg.replace(".", "/")
+              w("app/src/main/res/layout/html_widget.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent" android:layout_height="match_parent"
+              android:background="#F2FFFFFF">
+            <ImageView android:id="@+id/widget_image" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY"/>
+            <TextView android:id="@+id/widget_text" android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center" android:padding="8dp" android:textColor="#111" android:text="Widgetni ilovadan tanlang"/>
+          </FrameLayout>
+          """)
+              w("app/src/main/res/xml/html_widget_info.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+              android:minWidth="110dp" android:minHeight="110dp"
+              android:minResizeWidth="40dp" android:minResizeHeight="40dp"
+              android:targetCellWidth="2" android:targetCellHeight="2"
+              android:updatePeriodMillis="0"
+              android:resizeMode="horizontal|vertical"
+              android:widgetCategory="home_screen"
+              android:initialLayout="@layout/html_widget"
+              android:configure="%s.WidgetConfig"/>
+          """ % pkg)
+              w("app/src/main/res/layout/widget_config.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:orientation="vertical" android:layout_width="match_parent" android:layout_height="match_parent"
+              android:background="#101512" android:padding="18dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Widget tanlang" android:textColor="#B7F34A" android:textSize="20sp" android:paddingBottom="12dp"/>
+            <ListView android:id="@+id/widget_list" android:layout_width="match_parent" android:layout_height="match_parent" android:divider="#1F2B38" android:dividerHeight="1dp"/>
+          </LinearLayout>
+          """)
+              w("app/src/main/java/" + pkg_slash + "/HtmlWidget.java", """package %s;
+          import android.app.PendingIntent;
+          import android.appwidget.AppWidgetManager;
+          import android.appwidget.AppWidgetProvider;
+          import android.content.ComponentName;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.graphics.Bitmap;
+          import android.graphics.Canvas;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.view.View;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.RemoteViews;
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+          public class HtmlWidget extends AppWidgetProvider {
+            public static final String PREFS = "htmlwidgets";
+            public static final String BINDING = "htmlwidget_binding";
+            public static final String ACTION_REFRESH = "%s.WIDGET_REFRESH";
+            @Override public void onUpdate(Context ctx, AppWidgetManager mgr, int[] ids) { for (int id : ids) renderWidget(ctx, mgr, id); }
+            @Override public void onReceive(Context ctx, Intent intent) {
+              super.onReceive(ctx, intent);
+              if (ACTION_REFRESH.equals(intent.getAction())) {
+                AppWidgetManager mgr = AppWidgetManager.getInstance(ctx);
+                int[] ids = mgr.getAppWidgetIds(new ComponentName(ctx, HtmlWidget.class));
+                for (int id : ids) renderWidget(ctx, mgr, id);
+              }
+            }
+            @Override public void onAppWidgetOptionsChanged(Context ctx, AppWidgetManager mgr, int id, Bundle o) { renderWidget(ctx, mgr, id); }
+            @Override public void onDeleted(Context ctx, int[] ids) {
+              SharedPreferences.Editor e = ctx.getSharedPreferences(BINDING, 0).edit();
+              for (int id : ids) e.remove(String.valueOf(id));
+              e.apply();
+            }
+            public static JSONObject findWidget(Context ctx, String wid) {
+              try {
+                String arr = ctx.getSharedPreferences(PREFS, 0).getString("items", "[]");
+                JSONArray a = new JSONArray(arr);
+                for (int i = 0; i < a.length(); i++) { JSONObject o = a.getJSONObject(i); if (wid.equals(o.optString("id"))) return o; }
+              } catch (Exception ignored) {}
+              return null;
+            }
+            public static void renderWidget(final Context ctx, final AppWidgetManager mgr, final int appWidgetId) {
+              final RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.html_widget);
+              String wid = ctx.getSharedPreferences(BINDING, 0).getString(String.valueOf(appWidgetId), null);
+              JSONObject item = wid == null ? null : findWidget(ctx, wid);
+              if (item == null) {
+                views.setViewVisibility(R.id.widget_text, View.VISIBLE);
+                views.setViewVisibility(R.id.widget_image, View.GONE);
+                views.setTextViewText(R.id.widget_text, "Widgetni ilovadan tanlang");
+                mgr.updateAppWidget(appWidgetId, views);
+                return;
+              }
+              final String html = item.optString("html");
+              Bundle opts = mgr.getAppWidgetOptions(appWidgetId);
+              float density = ctx.getResources().getDisplayMetrics().density;
+              int wDp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 160);
+              int hDp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 160);
+              final int W = Math.max(120, (int)(wDp * density));
+              final int H = Math.max(120, (int)(hDp * density));
+              new Handler(Looper.getMainLooper()).post(new Runnable() { @Override public void run() {
+                try {
+                  final WebView wv = new WebView(ctx);
+                  WebSettings s = wv.getSettings(); s.setJavaScriptEnabled(true);
+                  wv.setInitialScale(100);
+                  wv.measure(View.MeasureSpec.makeMeasureSpec(W, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(H, View.MeasureSpec.EXACTLY));
+                  wv.layout(0, 0, W, H);
+                  wv.setWebViewClient(new WebViewClient() {
+                    @Override public void onPageFinished(WebView view, String url) {
+                      view.postDelayed(new Runnable() { @Override public void run() {
+                        try {
+                          Bitmap bm = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
+                          view.draw(new Canvas(bm));
+                          views.setViewVisibility(R.id.widget_image, View.VISIBLE);
+                          views.setViewVisibility(R.id.widget_text, View.GONE);
+                          views.setImageViewBitmap(R.id.widget_image, bm);
+                          Intent openApp = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+                          if (openApp != null) {
+                            int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
+                            PendingIntent pi = PendingIntent.getActivity(ctx, appWidgetId, openApp, flags);
+                            views.setOnClickPendingIntent(R.id.widget_image, pi);
+                          }
+                          mgr.updateAppWidget(appWidgetId, views);
+                        } catch (Exception ignored) {}
+                      }}, 450);
+                    }
+                  });
+                  String doc = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><style>html,body{margin:0;padding:8px;font-family:system-ui,sans-serif;background:#fff;color:#111;overflow:hidden}</style>" + html;
+                  wv.loadDataWithBaseURL("https://appassets.androidplatform.net/", doc, "text/html", "utf-8", null);
+                } catch (Exception ignored) {}
+              }});
+            }
+          }
+          """ % (pkg, pkg))
+              w("app/src/main/java/" + pkg_slash + "/WidgetConfig.java", """package %s;
+          import android.app.Activity;
+          import android.appwidget.AppWidgetManager;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.os.Bundle;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import android.widget.AdapterView;
+          import android.widget.ArrayAdapter;
+          import android.widget.ListView;
+          import android.widget.TextView;
+          import android.widget.Toast;
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+          import java.util.ArrayList;
+          public class WidgetConfig extends Activity {
+            int appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
+            @Override protected void onCreate(Bundle b) {
+              super.onCreate(b);
+              setResult(RESULT_CANCELED);
+              Bundle extras = getIntent().getExtras();
+              if (extras != null) appWidgetId = extras.getInt(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID);
+              if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) { finish(); return; }
+              SharedPreferences prefs = getSharedPreferences(HtmlWidget.PREFS, 0);
+              String arr = prefs.getString("items", "[]");
+              final ArrayList<String> ids = new ArrayList<String>();
+              final ArrayList<String> names = new ArrayList<String>();
+              try {
+                JSONArray a = new JSONArray(arr);
+                for (int i = 0; i < a.length(); i++) { JSONObject o = a.getJSONObject(i); ids.add(o.optString("id")); names.add(o.optString("name", "Widget")); }
+              } catch (Exception ignored) {}
+              if (names.isEmpty()) { Toast.makeText(this, "Avval ilovada widget yarating", Toast.LENGTH_LONG).show(); finish(); return; }
+              String pending = prefs.getString("pending_pin", null);
+              if (pending != null && ids.contains(pending)) {
+                prefs.edit().remove("pending_pin").apply();
+                bind(pending); return;
+              }
+              setContentView(R.layout.widget_config);
+              ListView lv = (ListView) findViewById(R.id.widget_list);
+              lv.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, names) {
+                @Override public View getView(int pos, View c, ViewGroup p) {
+                  TextView t = (TextView) super.getView(pos, c, p);
+                  t.setTextColor(0xFFEEF3EA); t.setPadding(16, 32, 16, 32); return t;
+                }
+              });
+              lv.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+                @Override public void onItemClick(AdapterView<?> p, View v, int pos, long id) { bind(ids.get(pos)); }
+              });
+            }
+            void bind(String widgetId) {
+              getSharedPreferences(HtmlWidget.BINDING, 0).edit().putString(String.valueOf(appWidgetId), widgetId).apply();
+              HtmlWidget.renderWidget(this, AppWidgetManager.getInstance(this), appWidgetId);
+              setResult(RESULT_OK, new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId));
+              finish();
+            }
+          }
+          """ % pkg)
+              w("app/src/main/java/" + pkg_slash + "/WidgetBridge.java", """package %s;
+          import android.app.Activity;
+          import android.app.PendingIntent;
+          import android.appwidget.AppWidgetManager;
+          import android.content.ComponentName;
+          import android.content.Intent;
+          import android.os.Build;
+          import android.webkit.JavascriptInterface;
+          import android.widget.Toast;
+          public class WidgetBridge {
+            private final Activity a;
+            public WidgetBridge(Activity a) { this.a = a; }
+            @JavascriptInterface public String list() { return a.getSharedPreferences(HtmlWidget.PREFS, 0).getString("items", "[]"); }
+            @JavascriptInterface public void save(String json) {
+              a.getSharedPreferences(HtmlWidget.PREFS, 0).edit().putString("items", json).apply();
+              a.sendBroadcast(new Intent(HtmlWidget.ACTION_REFRESH).setPackage(a.getPackageName()));
+            }
+            @JavascriptInterface public boolean canPin() {
+              if (Build.VERSION.SDK_INT < 26) return false;
+              return AppWidgetManager.getInstance(a).isRequestPinAppWidgetSupported();
+            }
+            @JavascriptInterface public void pin(String widgetId) {
+              if (Build.VERSION.SDK_INT < 26) { toast("Android 8+ kerak"); return; }
+              AppWidgetManager mgr = AppWidgetManager.getInstance(a);
+              if (!mgr.isRequestPinAppWidgetSupported()) { toast("Launcher qoʻllab-quvvatlamaydi"); return; }
+              a.getSharedPreferences(HtmlWidget.PREFS, 0).edit().putString("pending_pin", widgetId).apply();
+              int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+              Intent cb = new Intent(a, HtmlWidget.class).setAction("PIN_" + widgetId);
+              PendingIntent pi = PendingIntent.getBroadcast(a, 0, cb, flags);
+              mgr.requestPinAppWidget(new ComponentName(a, HtmlWidget.class), null, pi);
+            }
+            private void toast(final String t) { a.runOnUiThread(new Runnable() { @Override public void run() { Toast.makeText(a, t, Toast.LENGTH_SHORT).show(); } }); }
+          }
+          """ % pkg)
+              mf_path = "app/src/main/AndroidManifest.xml"
+              mf = open(mf_path).read()
+              widget_xml = ('    <receiver android:name=".HtmlWidget" android:exported="true">\n'
+                            '      <intent-filter>\n'
+                            '        <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>\n'
+                            '        <action android:name="%s.WIDGET_REFRESH"/>\n'
+                            '      </intent-filter>\n'
+                            '      <meta-data android:name="android.appwidget.provider" android:resource="@xml/html_widget_info"/>\n'
+                            '    </receiver>\n'
+                            '    <activity android:name=".WidgetConfig" android:exported="true" android:theme="@android:style/Theme.Material.Dialog.NoActionBar">\n'
+                            '      <intent-filter>\n'
+                            '        <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE"/>\n'
+                            '      </intent-filter>\n'
+                            '    </activity>\n') % pkg
+              open(mf_path, "w").write(mf.replace("</application>", widget_xml + "  </application>"))
+              ma_path = "app/src/main/java/" + pkg_slash + "/MainActivity.java"
+              src = open(ma_path).read()
+              src = src.replace('if (false) web.addJavascriptInterface(new PermBridge(), "AndroidPerm");',
+                                'if (false) web.addJavascriptInterface(new PermBridge(), "AndroidPerm"); web.addJavascriptInterface(new WidgetBridge(MainActivity.this), "WidgetHost");')
+              src = src.replace('if (true) web.addJavascriptInterface(new PermBridge(), "AndroidPerm");',
+                                'if (true) web.addJavascriptInterface(new PermBridge(), "AndroidPerm"); web.addJavascriptInterface(new WidgetBridge(MainActivity.this), "WidgetHost");')
+              open(ma_path, "w").write(src)
           
           PY
           python3 gen.py
