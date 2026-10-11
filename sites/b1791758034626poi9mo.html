@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>G'ayritabiy imkoniyatlar</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:#0e1210;color:#eef3ea;font-family:system-ui,-apple-system,Roboto,sans-serif}
+body{display:flex;flex-direction:column;padding:max(24px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom));gap:14px;overflow-y:auto}
+h1{font-size:22px;font-weight:700}
+.card{border:1px solid #2a332c;border-radius:18px;background:#171d19;padding:16px}
+.card h2{font-size:15px;color:#93a08f;margin-bottom:12px}
+button{width:100%;padding:15px;border:0;border-radius:14px;background:#b7f34a;color:#0e1210;font-size:16px;font-weight:700}
+button.stop{background:#ff5d5d;color:#fff}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.msg{margin-top:10px;font-size:13px;color:#93a08f;min-height:18px}
+.msg.err{color:#ff5d5d}.msg.ok{color:#3ddc84}
+.big{font-size:34px;font-weight:700;color:#b7f34a;text-align:center;margin-top:6px}
+input{width:100%;padding:13px;border-radius:14px;border:1px solid #2a332c;background:#0e1210;color:#eef3ea;font-size:16px;outline:none}
+input:focus{border-color:#b7f34a}
+</style></head><body>
+<h1>🌀 G'ayritabiy imkoniyatlar</h1>
+
+<div class="card">
+  <h2>📳 Vibratsiya</h2>
+  <div class="row">
+    <button data-vib="200">Qisqa</button>
+    <button data-vib="[0,300,100,300,100,300]">SOS</button>
+    <button data-vib="[0,80,60,80,60,400]">Yurak urishi</button>
+  </div>
+  <div class="msg" id="vibMsg"></div>
+</div>
+
+<div class="card">
+  <h2>🗣️ Ovoz chiqarish</h2>
+  <input id="sayText" value="Salom! Men sizning telefoningizman.">
+  <div style="height:10px"></div>
+  <button id="sayBtn">Gapir</button>
+  <div class="msg" id="sayMsg"></div>
+</div>
+
+<div class="card">
+  <h2>🤸 Telefonni silkitish</h2>
+  <button id="shakeBtn">Silkitish hisoblagichni yoqish</button>
+  <div class="big" id="shakeCount">0</div>
+  <div class="msg" id="shakeMsg">Telefonni qo'lga olib silkitib ko'ring</div>
+</div>
+
+<div class="card">
+  <h2>🧭 Harakat sensorlari</h2>
+  <button id="tiltBtn">Sensorni yoqish</button>
+  <div class="big" id="tiltVal">—</div>
+  <div class="msg" id="tiltMsg">Telefonni og'diring — raqamlar o'zgaradi</div>
+</div>
+
+<div class="card">
+  <h2>🔋 Batareya holati</h2>
+  <button id="batBtn">Ko'rsatish</button>
+  <div class="big" id="batVal">—</div>
+  <div class="msg" id="batMsg"></div>
+</div>
+
+<div class="card">
+  <h2>💡 Ekranni uxlatmaslik</h2>
+  <button id="wakeBtn">Ekran o'chmasin</button>
+  <div class="msg" id="wakeMsg"></div>
+</div>
+
+<div class="card">
+  <h2>📋 Bufer (clipboard)</h2>
+  <input id="clipText" placeholder="Nimadir yozing…">
+  <div style="height:10px"></div>
+  <div class="row">
+    <button id="copyBtn">Nusxalash</button>
+    <button id="pasteBtn">O'qish</button>
+  </div>
+  <div class="msg" id="clipMsg"></div>
+</div>
+
+<script>
+function setMsg(id,txt,cls){var m=document.getElementById(id);m.textContent=txt;m.className="msg "+(cls||"")}
+
+// --- Vibration ---
+document.querySelectorAll("[data-vib]").forEach(function(b){
+  b.onclick=function(){
+    var p=JSON.parse(b.getAttribute("data-vib"));
+    if(navigator.vibrate&&navigator.vibrate(p)){setMsg("vibMsg","Tebranyapti ✓","ok")}
+    else setMsg("vibMsg","Bu qurilma vibratsiyani qo'llamaydi.","err");
+  };
+});
+
+// --- Speech ---
+document.getElementById("sayBtn").onclick=function(){
+  if(!("speechSynthesis" in window)){setMsg("sayMsg","Bu qurilma ovoz chiqara olmaydi.","err");return}
+  var u=new SpeechSynthesisUtterance(document.getElementById("sayText").value||"Salom");
+  u.lang="uz-UZ";u.rate=1;
+  speechSynthesis.cancel();speechSynthesis.speak(u);
+  setMsg("sayMsg","Gapiryapti… 🔊","ok");
+};
+
+// --- Shake counter (accelerometer) ---
+var shakeOn=false,shakeN=0,lastA=null,lastT=0;
+var shakeBtn=document.getElementById("shakeBtn");
+function onMotion(e){
+  var a=e.accelerationIncludingGravity;if(!a||a.x===null)return;
+  if(lastA){
+    var d=Math.abs(a.x-lastA.x)+Math.abs(a.y-lastA.y)+Math.abs(a.z-lastA.z);
+    var now=Date.now();
+    if(d>25&&now-lastT>300){
+      shakeN++;lastT=now;
+      document.getElementById("shakeCount").textContent=shakeN;
+      if(navigator.vibrate)navigator.vibrate(40);
+    }
+  }
+  lastA={x:a.x,y:a.y,z:a.z};
+}
+shakeBtn.onclick=function(){
+  if(shakeOn){
+    window.removeEventListener("devicemotion",onMotion);
+    shakeOn=false;shakeBtn.textContent="Silkitish hisoblagichni yoqish";shakeBtn.className="";
+    setMsg("shakeMsg","To'xtatildi. Jami: "+shakeN+" marta");
+    return;
+  }
+  var start=function(){
+    window.addEventListener("devicemotion",onMotion);
+    shakeOn=true;shakeN=0;document.getElementById("shakeCount").textContent="0";
+    shakeBtn.textContent="To'xtatish";shakeBtn.className="stop";
+    setMsg("shakeMsg","Yoqildi — telefonni silkiting!","ok");
+  };
+  if(typeof DeviceMotionEvent!=="undefined"&&typeof DeviceMotionEvent.requestPermission==="function"){
+    DeviceMotionEvent.requestPermission().then(function(r){
+      if(r==="granted")start();else setMsg("shakeMsg","Sensor ruxsati berilmadi.","err");
+    }).catch(function(){setMsg("shakeMsg","Ruxsat olinmadi.","err")});
+  }else start();
+};
+
+// --- Tilt sensors ---
+var tiltOn=false,tiltBtn=document.getElementById("tiltBtn");
+function onOrient(e){
+  if(e.beta===null)return;
+  document.getElementById("tiltVal").textContent=Math.round(e.beta)+"° / "+Math.round(e.gamma)+"°";
+}
+tiltBtn.onclick=function(){
+  if(tiltOn){
+    window.removeEventListener("deviceorientation",onOrient);
+    tiltOn=false;tiltBtn.textContent="Sensorni yoqish";tiltBtn.className="";
+    document.getElementById("tiltVal").textContent="—";setMsg("tiltMsg","");
+    return;
+  }
+  var start=function(){
+    window.addEventListener("deviceorientation",onOrient);
+    tiltOn=true;tiltBtn.textContent="To'xtatish";tiltBtn.className="stop";
+    setMsg("tiltMsg","Yoqildi — telefonni og'diring (old-orqa / chap-o'ng)","ok");
+  };
+  if(typeof DeviceOrientationEvent!=="undefined"&&typeof DeviceOrientationEvent.requestPermission==="function"){
+    DeviceOrientationEvent.requestPermission().then(function(r){
+      if(r==="granted")start();else setMsg("tiltMsg","Sensor ruxsati berilmadi.","err");
+    }).catch(function(){setMsg("tiltMsg","Ruxsat olinmadi.","err")});
+  }else start();
+};
+
+// --- Battery ---
+document.getElementById("batBtn").onclick=function(){
+  if(!navigator.getBattery){setMsg("batMsg","Bu qurilma batareya ma'lumotini bermaydi.","err");return}
+  navigator.getBattery().then(function(b){
+    document.getElementById("batVal").textContent=Math.round(b.level*100)+"%";
+    setMsg("batMsg",b.charging?"⚡ Zaryadlanmoqda":"Zaryadlanmayapti",b.charging?"ok":"");
+  });
+};
+
+// --- Wake lock ---
+var wakeLock=null,wakeBtn=document.getElementById("wakeBtn");
+wakeBtn.onclick=async function(){
+  if(wakeLock){
+    await wakeLock.release();wakeLock=null;
+    wakeBtn.textContent="Ekran o'chmasin";wakeBtn.className="";
+    setMsg("wakeMsg","O'chirildi — ekran o'z vaqtida uxlaydi");
+    return;
+  }
+  if(!("wakeLock" in navigator)){setMsg("wakeMsg","Bu qurilma qo'llamaydi.","err");return}
+  try{
+    wakeLock=await navigator.wakeLock.request("screen");
+    wakeBtn.textContent="O'chirish";wakeBtn.className="stop";
+    setMsg("wakeMsg","Yoqildi — ekran endi uxlamaydi 💡","ok");
+    wakeLock.addEventListener("release",function(){
+      wakeLock=null;wakeBtn.textContent="Ekran o'chmasin";wakeBtn.className="";
+      setMsg("wakeMsg","O'chdi");
+    });
+  }catch(e){setMsg("wakeMsg","Yoqmadi: "+(e.message||e),"err")}
+};
+
+// --- Clipboard ---
+document.getElementById("copyBtn").onclick=async function(){
+  var t=document.getElementById("clipText").value;
+  if(!t){setMsg("clipMsg","Avval nimadir yozing.","err");return}
+  try{await navigator.clipboard.writeText(t);setMsg("clipMsg","Nusxalandi ✓ Endi istalgan joyga joylashtiring.","ok")}
+  catch(e){setMsg("clipMsg","Nusxalanmadi: "+(e.message||e),"err")}
+};
+document.getElementById("pasteBtn").onclick=async function(){
+  try{
+    var t=await navigator.clipboard.readText();
+    document.getElementById("clipText").value=t;
+    setMsg("clipMsg",t?"Buferdan o'qildi ✓":"Bufer bo'sh.",t?"ok":"");
+  }catch(e){setMsg("clipMsg","O'qib bo'lmadi: "+(e.message||e),"err")}
+};
+</script></body></html>
