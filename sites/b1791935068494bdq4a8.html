@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Kalkulyator</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+html,body{height:100%;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Roboto,sans-serif}
+body{display:flex;flex-direction:column;justify-content:flex-end;padding:env(safe-area-inset-top) 14px calc(14px + env(safe-area-inset-bottom))}
+#d{display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-end;padding:10px 14px 14px;flex:1;max-height:40%}
+#e{color:rgba(255,255,255,.55);font-size:22px;min-height:30px;word-break:break-all;text-align:right}
+#r{font-size:clamp(48px,17vw,88px);font-weight:200;letter-spacing:-1px;word-break:break-all;text-align:right;line-height:1.1}
+.g{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding-bottom:env(safe-area-inset-bottom)}
+button{aspect-ratio:1;border:0;border-radius:50%;font-size:clamp(24px,8vw,34px);font-weight:400;color:#fff;background:#333;transition:filter .08s,background .08s}
+button:active{filter:brightness(1.6)}
+.t{background:#a5a5a5;color:#000}
+.o{background:#ff9f0a;font-size:clamp(28px,9vw,38px)}
+.o.on{background:#fff;color:#ff9f0a}
+.z{grid-column:span 2;aspect-ratio:auto;border-radius:999px;text-align:left;padding-left:30px}
+</style></head><body>
+<div id="d"><div id="e"></div><div id="r">0</div></div>
+<div class="g">
+<button class="t" data-k="C" id="c">AC</button><button class="t" data-k="±">±</button><button class="t" data-k="%">%</button><button class="o" data-k="/">÷</button>
+<button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button><button class="o" data-k="*">×</button>
+<button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button><button class="o" data-k="-">−</button>
+<button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button><button class="o" data-k="+">+</button>
+<button class="z" data-k="0">0</button><button data-k=".">,</button><button class="o" data-k="=">=</button>
+</div>
+<script>
+var cur="0",acc=null,op=null,fresh=true,R=document.getElementById("r"),E=document.getElementById("e"),CB=document.getElementById("c");
+var sym={"+":"+","-":"−","*":"×","/":"÷"};
+function fmt(n){if(!isFinite(n))return"Xato";var s=String(+n.toPrecision(12));return s.replace(".",",")}
+function calc(a,b,o){return o=="+"?a+b:o=="-"?a-b:o=="*"?a*b:a/b}
+function show(){
+  var big=parseFloat(cur);
+  var txt=(!isFinite(big)||isNaN(big))?cur:Math.abs(big)>=1e9||(Math.abs(big)>0&&Math.abs(big)<0.001)?big.toExponential(4).replace(".",","):fmt(big);
+  R.textContent=txt.replace(".",",");
+  E.textContent=acc!==null&&op?fmt(acc)+" "+sym[op]:"";
+  var ob=document.querySelector(".o.on");if(ob)ob.classList.remove("on");
+  if(op&&fresh)document.querySelector('.o[data-k="'+op+'"]').classList.add("on");
+  CB.textContent=(cur==="0"&&acc===null)?"AC":"C";
+}
+document.querySelector(".g").addEventListener("click",function(ev){var k=ev.target.getAttribute("data-k");if(!k)return;
+if(/[0-9]/.test(k)){cur=(fresh||cur=="0")?k:(cur.length<15?cur+k:cur);fresh=false}
+else if(k=="."){if(fresh){cur="0.";fresh=false}else if(cur.indexOf(".")<0)cur+="."}
+else if(k=="C"){if(CB.textContent=="AC"){cur="0";acc=null;op=null}else{cur="0"}fresh=true}
+else if(k=="±"){if(cur!="0")cur=cur.charAt(0)=="-"?cur.slice(1):"-"+cur}
+else if(k=="%"){cur=String(parseFloat(cur)/100)}
+else if(k=="="){if(op!==null){cur=String(+calc(acc,parseFloat(cur),op).toPrecision(12));acc=null;op=null;fresh=true}}
+else{if(op!==null&&!fresh)cur=String(+calc(acc,parseFloat(cur),op).toPrecision(12));acc=parseFloat(cur);op=k;fresh=true}
+if(cur=="Infinity"||cur=="-Infinity"||cur=="NaN"||isNaN(parseFloat(cur))&&cur!="0."&&cur!="-"){R.textContent="Xato";cur="0";acc=null;op=null;fresh=true;E.textContent="";return}
+show()});
+show();
+</script></body></html>
