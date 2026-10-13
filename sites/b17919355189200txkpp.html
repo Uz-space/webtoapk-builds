@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Kredit</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:#0e1210;color:#eef3ea;font-family:system-ui,-apple-system,Roboto,sans-serif}
+body{display:flex;flex-direction:column;padding:max(24px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom))}
+h1{font-size:22px;font-weight:700;margin-bottom:18px}
+label{display:block;font-size:13px;color:#93a08f;margin:14px 0 6px}
+input,select{width:100%;padding:14px;border-radius:14px;border:1px solid #2a332c;background:#171d19;color:#eef3ea;font-size:18px;outline:none}
+input:focus,select:focus{border-color:#b7f34a}
+.out{margin-top:22px;padding:20px;border-radius:18px;background:#171d19;border:1px solid #2a332c}
+.out small{color:#93a08f;font-size:13px}.out b{display:block;font-size:30px;color:#b7f34a;margin-top:4px;word-break:break-all}
+.row{display:flex;gap:10px}.row>*{flex:1}
+
+</style></head><body><h1>Kredit kalkulyatori</h1>
+<label>Kredit summasi (so'm)</label><input id="a" type="number" inputmode="decimal" value="50000000">
+<div class="row"><div><label>Yillik foiz (%)</label><input id="r" type="number" inputmode="decimal" value="24"></div>
+<div><label>Muddat (oy)</label><input id="n" type="number" inputmode="numeric" value="24"></div></div>
+<div class="out"><small>Oylik to'lov</small><b id="m">—</b></div>
+<div class="out"><small>Jami ortiqcha to'lov</small><b id="o">—</b></div><script>function f(n){return Math.round(n).toLocaleString("ru-RU")+" so'm"}
+function u(){var a=+document.getElementById("a").value||0,r=(+document.getElementById("r").value||0)/1200,n=Math.round(+document.getElementById("n").value||0);
+if(!a||!n){document.getElementById("m").textContent="—";document.getElementById("o").textContent="—";return}
+var m=r?a*r/(1-Math.pow(1+r,-n)):a/n;document.getElementById("m").textContent=f(m);document.getElementById("o").textContent=f(m*n-a)}
+document.querySelectorAll("input").forEach(function(i){i.oninput=u});u();</script></body></html>
